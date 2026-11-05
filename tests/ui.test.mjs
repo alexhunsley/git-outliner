@@ -114,6 +114,25 @@ test("DOM workflow: select lanes, toggle, save, reload, reconcile, import/export
     assert.equal((await store.list())[0].name, "Release review");
     b.input("#search", "CTR-301");
     assert.equal(b.w.document.querySelectorAll("#events .event").length, 1);
+    await b.change("#display-mode", "all");
+    assert.match(b.find(".toolbar").textContent, /visible commits/);
+    b.input("#filter-patterns", "REPORTING\nkeyboard navigation");
+    await b.click('[data-action="filter"]');
+    assert.equal(
+      b.w.document.querySelectorAll('#diagram circle[stroke-width="3"]').length,
+      2,
+    );
+    assert.match(b.find("#diagram").textContent, /newest → oldest/);
+    await b.click('[data-action="save"]');
+    const filteredView = (await store.list())[0];
+    assert.deepEqual(filteredView.display, {
+      mode: "all",
+      patterns: "REPORTING\nkeyboard navigation",
+    });
+    b.input("#filter-patterns", "");
+    await b.click('[data-action="filter"]');
+    await b.change("#display-mode", "merges");
+    await b.click('[data-action="save"]');
     await b.click('[data-action="json"]');
     const exported = JSON.parse(await b.downloads.at(-1).text());
     assert.equal(exported.visibility.overrides[commits.staging], false);

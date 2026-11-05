@@ -24,6 +24,13 @@ export const ViewSchema = z
       })
       .strict(),
     tickets: z.object({ pattern: z.string().min(1).max(500) }).strict(),
+    display: z
+      .object({
+        mode: z.enum(["merges", "all"]).default("merges"),
+        patterns: z.string().max(10000).default(""),
+      })
+      .strict()
+      .default({ mode: "merges", patterns: "" }),
     layout: z
       .object({
         spacing: z.number().int().min(48).max(220),
@@ -79,7 +86,7 @@ export interface Warning {
 }
 export interface History {
   repository: Repository;
-  lanes: { ref: string; events: Commit[] }[];
+  lanes: { ref: string; events: Commit[]; commits: Commit[] }[];
   links: Link[];
   order: string[];
   warnings: Warning[];
@@ -117,6 +124,7 @@ export function newView(repository: Repository): TunedView {
     branches: [root],
     visibility: { default: "include", overrides: {} },
     tickets: { pattern: DEFAULT_PATTERN },
+    display: { mode: "merges", patterns: "" },
     layout: { spacing: 92, laneWidth: 320, compact: false },
   };
 }
@@ -126,4 +134,29 @@ export function sameRepository(
   current: TunedView["repository"],
 ) {
   return saved.roots.every((root) => current.roots.includes(root));
+}
+
+// Literal, case-insensitive OR matching. Empty lines do not constrain the view.
+export function matchesPatterns(commit: Commit, patterns: string): boolean {
+  const lines = patterns
+    .split(/\r?\n/)
+    .map((line) => line.trim().toLowerCase())
+    .filter(Boolean);
+  const text =
+    `${commit.subject}\n${commit.body}\n${commit.sha}\n${commit.tickets.join(" ")}`.toLowerCase();
+  return !lines.length || lines.some((line) => text.includes(line));
+}
+export function candidates(
+  history: History,
+  lane: History["lanes"][number],
+  view: TunedView,
+): Commit[] {
+  const bases = new Set(history.links.map((link) => link.base));
+  return lane.commits.filter(
+    (commit) =>
+      (view.display.mode === "all" ||
+        commit.parents.length > 1 ||
+        bases.has(commit.sha)) &&
+      matchesPatterns(commit, view.display.patterns),
+  );
 }

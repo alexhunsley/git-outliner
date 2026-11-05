@@ -1,5 +1,6 @@
 import "./style.css";
 import {
+  candidates,
   newView,
   ViewSchema,
   visible,
@@ -75,7 +76,12 @@ function draw() {
   const sideScroll = document.querySelector("aside")?.scrollTop || 0;
   const count =
     history?.lanes.reduce(
-      (n, l) => n + l.events.filter((c) => view && visible(view, c.sha)).length,
+      (n, l) =>
+        n +
+        (view
+          ? candidates(history!, l, view).filter((c) => visible(view!, c.sha))
+              .length
+          : 0),
       0,
     ) || 0;
   const svg = history && view ? renderSvg(history, view) : "";
@@ -92,11 +98,11 @@ function draw() {
               `<label class="check"><input type="checkbox" data-branch="${esc(b.ref)}" ${view!.branches.includes(b.ref) ? "checked" : ""}><span>${esc(label(b.ref))}</span></label>`,
           )
           .join("")}</div></section>
-  <section><div class="eyebrow">03 / MERGE EVENTS</div><label class="sr" for="search">Search merge events</label><input id="search" type="search" placeholder="Search tickets, subjects, SHA…" value="${esc(query)}"><div class="row"><button data-action="all">All</button><button data-action="none">None</button><button data-action="defaults">Reset overrides</button></div><p class="hint">Controls apply to all discovered events, including those hidden by search.</p><div id="events">${eventList()}</div></section>
-  <section><details><summary>Parsing & presentation</summary><label for="pattern">Ticket regex</label><input id="pattern" value="${esc(view.tickets.pattern)}"><button data-action="pattern">Apply regex</button><label for="policy">New merges default to</label><select id="policy"><option value="include" ${view.visibility.default === "include" ? "selected" : ""}>Included</option><option value="exclude" ${view.visibility.default === "exclude" ? "selected" : ""}>Excluded</option></select><label for="spacing">Event spacing</label><input id="spacing" type="range" min="72" max="220" step="1" value="${view.layout.spacing}"><label for="width">Lane width</label><input id="width" type="range" min="240" max="600" step="10" value="${view.layout.laneWidth}"><label class="check"><input id="compact" type="checkbox" ${view.layout.compact ? "checked" : ""}>Compact labels</label></details></section>`
+  <section><div class="eyebrow">03 / COMMITS & MERGES</div><label for="display-mode">Show</label><select id="display-mode"><option value="merges" ${view.display.mode === "merges" ? "selected" : ""}>Merges & branching points only</option><option value="all" ${view.display.mode === "all" ? "selected" : ""}>All commits</option></select><label for="filter-patterns">Filter diagram by text</label><textarea id="filter-patterns" rows="4" maxlength="10000" placeholder="CTR-123&#10;fix login">${esc(view.display.patterns)}</textarea><p class="hint">One literal pattern per line. Matches any line, ignoring case, in the message, tickets or SHA. Blank shows all. Branch connections remain for context.</p><button data-action="filter">Apply filter</button><label class="sr" for="search">Search checklist</label><input id="search" type="search" placeholder="Search tickets, subjects, SHA…" value="${esc(query)}"><div class="row"><button data-action="all">All</button><button data-action="none">None</button><button data-action="defaults">Reset overrides</button></div><p class="hint">Controls apply to all discovered events, in this display mode and text filter, including those hidden by checklist search.</p><div id="events">${eventList()}</div></section>
+  <section><details><summary>Parsing & presentation</summary><label for="pattern">Ticket regex</label><input id="pattern" value="${esc(view.tickets.pattern)}"><button data-action="pattern">Apply regex</button><label for="policy">New commits / merges default to</label><select id="policy"><option value="include" ${view.visibility.default === "include" ? "selected" : ""}>Included</option><option value="exclude" ${view.visibility.default === "exclude" ? "selected" : ""}>Excluded</option></select><label for="spacing">Event spacing</label><input id="spacing" type="range" min="72" max="220" step="1" value="${view.layout.spacing}"><label for="width">Lane width</label><input id="width" type="range" min="240" max="600" step="10" value="${view.layout.laneWidth}"><label class="check"><input id="compact" type="checkbox" ${view.layout.compact ? "checked" : ""}>Compact labels</label></details></section>`
       : ""
   }</fieldset></aside>
-  <article><div class="toolbar"><div><div class="eyebrow">LIVE REPOSITORY DIAGRAM</div><h1>${esc(view?.name || "History, with a little clarity.")}</h1><span class="muted">${history ? `${history.lanes.length} lanes · ${count} visible merges · oldest to newest ↓` : "Curate branches and merges into a reusable view."}</span></div><div class="row"><button data-action="refresh" ${!view || busy ? "disabled" : ""}>↻ Refresh / regenerate</button><button data-action="svg" ${!history || busy ? "disabled" : ""}>Export SVG ↗</button></div></div>
+  <article><div class="toolbar"><div><div class="eyebrow">LIVE REPOSITORY DIAGRAM</div><h1>${esc(view?.name || "History, with a little clarity.")}</h1><span class="muted">${history ? `${history.lanes.length} lanes · ${count} visible ${view?.display.mode === "all" ? "commits" : "merges / branch points"} · newest to oldest ↓` : "Curate branches and merges into a reusable view."}</span></div><div class="row"><button data-action="refresh" ${!view || busy ? "disabled" : ""}>↻ Refresh / regenerate</button><button data-action="svg" ${!history || busy ? "disabled" : ""}>Export SVG ↗</button></div></div>
   ${history && view ? `<div class="warnings">${warningList()}</div><div class="canvas-controls"><button data-action="minus" aria-label="Zoom out">−</button><span id="zoom-label">${Math.round(scale * 100)}%</span><button data-action="plus" aria-label="Zoom in">+</button><button data-action="fit">Fit to view</button><span class="hint">Drag to pan · scroll to explore · hover labels for full messages</span></div><div id="viewport" tabindex="0" aria-label="Scrollable diagram"><div id="diagram" style="width:${getSvgSize(svg, "width") * scale}px;height:${getSvgSize(svg, "height") * scale}px"><div style="transform:scale(${scale});transform-origin:top left">${svg}</div></div></div>` : `<div class="empty"><div class="empty-symbol">⑂</div><h2>Your repository. Your story.</h2><p>Open a local Git repository, choose a root and descendant branches,<br>then tune the merges you want to show.</p><p class="hint">Saved rules follow your live history. Export clean, vector SVGs.</p></div>`}</article></main><input id="import-file" type="file" accept=".json,application/json" hidden>`;
   const nextViewport = document.querySelector("#viewport");
   if (nextViewport) {
@@ -117,21 +123,21 @@ function getSvgSize(svg: string, attr: string) {
 }
 function eventList() {
   if (!history || !view)
-    return '<p class="hint">Select branches to discover merges.</p>';
+    return '<p class="hint">Select branches to discover commits and merges.</p>';
   return history.lanes
     .map((l) => {
-      const events = l.events.filter((c) =>
+      const events = candidates(history!, l, view!).filter((c) =>
         `${c.body} ${c.sha} ${c.tickets.join(" ")}`
           .toLowerCase()
           .includes(query.toLowerCase()),
       );
-      return `<details open class="event-group"><summary>${esc(label(l.ref))} <span class="muted">${events.length}</span></summary><div class="row"><button data-group="${esc(l.ref)}" data-set="true">All</button><button data-group="${esc(l.ref)}" data-set="false">None</button></div>${events.length ? events.map((c) => `<div class="event"><label class="check"><input type="checkbox" data-event="${c.sha}" ${visible(view!, c.sha) ? "checked" : ""}><span><strong>${esc(c.tickets.join(", ") || c.subject || c.sha.slice(0, 8))}</strong><span class="event-subject" title="${esc(c.body)}">${esc(c.subject)}</span><small>${new Date(c.timestamp * 1000).toISOString().slice(0, 10)} · ${c.sha.slice(0, 8)}</small></span></label>${c.sha in view!.visibility.overrides ? `<button class="reset" data-reset="${c.sha}" title="Use default visibility">Reset to default</button>` : ""}</div>`).join("") : '<p class="hint">No matching merges in this branch segment.</p>'}</details>`;
+      return `<details open class="event-group"><summary>${esc(label(l.ref))} <span class="muted">${events.length}</span></summary><div class="row"><button data-group="${esc(l.ref)}" data-set="true">All</button><button data-group="${esc(l.ref)}" data-set="false">None</button></div>${events.length ? events.map((c) => `<div class="event"><label class="check"><input type="checkbox" data-event="${c.sha}" ${visible(view!, c.sha) ? "checked" : ""}><span><strong>${esc(c.tickets.join(", ") || c.subject || c.sha.slice(0, 8))}</strong><span class="event-subject" title="${esc(c.body)}">${esc(c.subject)}</span><small>${new Date(c.timestamp * 1000).toISOString().slice(0, 10)} · ${c.sha.slice(0, 8)}</small></span></label>${c.sha in view!.visibility.overrides ? `<button class="reset" data-reset="${c.sha}" title="Use default visibility">Reset to default</button>` : ""}</div>`).join("") : '<p class="hint">No matching events in this branch segment.</p>'}</details>`;
     })
     .join("");
 }
 function warningList() {
   if (!history || !view || !history.warnings.length) return "";
-  return `<details ${history.unresolved.length || history.warnings.some((w) => w.kind === "merge") ? "open" : ""}><summary>${history.warnings.length} reconciliation / ancestry notices${history.unresolved.length ? ` · ${history.unresolved.length} unresolved branches` : ""}</summary>${history.warnings.map((w, i) => `<div class="warning"><p>${esc(w.message)}</p>${w.ref && history!.unresolved.includes(w.ref) ? `<select aria-label="Replacement local branch" id="remap-${i}">${options()}</select><button data-remap="${i}">Reassign</button>${w.ref !== view!.root ? `<button data-remove="${esc(w.ref)}">Remove selection</button>` : ""}` : ""}${w.sha ? `<button data-reset="${w.sha}">Reset override</button><select id="merge-remap-${i}" aria-label="Replacement merge"><option value="">Select a merge explicitly…</option>${history!.lanes.flatMap((l) => l.events.map((c) => `<option value="${c.sha}">${esc(label(l.ref))} · ${c.sha.slice(0, 8)} · ${esc(c.subject)}</option>`)).join("")}</select><button data-merge-remap="${i}">Move override</button>` : ""}</div>`).join("")}</details>`;
+  return `<details ${history.unresolved.length || history.warnings.some((w) => w.kind === "merge") ? "open" : ""}><summary>${history.warnings.length} reconciliation / ancestry notices${history.unresolved.length ? ` · ${history.unresolved.length} unresolved branches` : ""}</summary>${history.warnings.map((w, i) => `<div class="warning"><p>${esc(w.message)}</p>${w.ref && history!.unresolved.includes(w.ref) ? `<select aria-label="Replacement local branch" id="remap-${i}">${options()}</select><button data-remap="${i}">Reassign</button>${w.ref !== view!.root ? `<button data-remove="${esc(w.ref)}">Remove selection</button>` : ""}` : ""}${w.sha ? `<button data-reset="${w.sha}">Reset override</button><select id="merge-remap-${i}" aria-label="Replacement commit"><option value="">Select a commit explicitly…</option>${history!.lanes.flatMap((l) => l.commits.map((c) => `<option value="${c.sha}">${esc(label(l.ref))} · ${c.sha.slice(0, 8)} · ${esc(c.subject)}</option>`)).join("")}</select><button data-merge-remap="${i}">Move override</button>` : ""}</div>`).join("")}</details>`;
 }
 async function refresh() {
   if (!repo || !view) return;
@@ -173,11 +179,11 @@ app.addEventListener("click", (event) => {
   }
   if (d.group && view && history) {
     void change(() => {
-      history!.lanes
-        .find((l) => l.ref === d.group)!
-        .events.forEach(
-          (c) => (view!.visibility.overrides[c.sha] = d.set === "true"),
-        );
+      candidates(
+        history!,
+        history!.lanes.find((l) => l.ref === d.group)!,
+        view!,
+      ).forEach((c) => (view!.visibility.overrides[c.sha] = d.set === "true"));
     });
     return;
   }
@@ -219,6 +225,14 @@ app.addEventListener("click", (event) => {
     return;
   }
   const action = d.action;
+  if (action === "filter" && view) {
+    const patterns = (
+      document.querySelector("#filter-patterns") as HTMLTextAreaElement
+    ).value;
+    void change(() => {
+      view!.display.patterns = patterns;
+    });
+  }
   if (action === "open") {
     const path = (document.querySelector("#path") as HTMLInputElement).value;
     if (discard())
@@ -325,7 +339,7 @@ app.addEventListener("click", (event) => {
       if (action === "defaults") view!.visibility.overrides = {};
       else
         history?.lanes.forEach((l) =>
-          l.events.forEach(
+          candidates(history!, l, view!).forEach(
             (c) => (view!.visibility.overrides[c.sha] = action === "all"),
           ),
         );
@@ -380,6 +394,10 @@ app.addEventListener("change", (event) => {
     return;
   }
   if (!view) return;
+  if (input.id === "display-mode")
+    void change(() => {
+      view!.display.mode = input.value as "merges" | "all";
+    });
   if (input.dataset.branch)
     void change(() => {
       view!.branches = input.checked

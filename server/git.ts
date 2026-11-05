@@ -213,30 +213,27 @@ export async function readHistory(
     const owned = new Set<string>();
     for (const ref of connected) {
       const commits = histories.get(ref)!;
-      const events = commits.filter(
-        (c) => c.parents.length > 1 && !owned.has(c.sha),
-      );
+      const segment = commits.filter((c) => !owned.has(c.sha));
+      const events = segment.filter((c) => c.parents.length > 1);
       commits.forEach((c) => owned.add(c.sha));
-      result.lanes.push({ ref, events });
+      result.lanes.push({ ref, events, commits: segment });
     }
   } else if (histories.size)
     result.warnings.push({
       kind: "ancestry",
       message: "The root is missing. Reassign it to render descendant lanes.",
     });
-  const events = result.lanes.flatMap((l) => l.events);
+  const events = result.lanes.flatMap((l) => l.commits);
   await tickets(events, view.tickets.pattern);
   const relevant = new Set(
-    [...histories.values()].flatMap((h) =>
-      h.filter((c) => c.parents.length > 1).map((c) => c.sha),
-    ),
+    [...histories.values()].flatMap((h) => h.map((c) => c.sha)),
   );
   for (const sha of Object.keys(view.visibility.overrides))
     if (!relevant.has(sha))
       result.warnings.push({
         kind: "merge",
         sha,
-        message: `Merge override ${sha.slice(0, 8)} is absent from selected histories. It is retained; reset or explicitly remap it if needed.`,
+        message: `Commit override ${sha.slice(0, 8)} is absent from selected histories. It is retained; reset or explicitly remap it if needed.`,
       });
   const tips = refs.flatMap((ref) =>
     repository.branches.filter((b) => b.ref === ref).map((b) => b.sha),

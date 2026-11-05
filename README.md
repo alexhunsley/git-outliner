@@ -34,22 +34,23 @@ The script creates `.demo/` and prints its absolute path. It refuses to overwrit
 
 1. Enter the absolute path to a local working-tree repository. Bare repositories are currently unsupported.
 2. Set the diagram root and check additional local branches. The root need not be the repository's initial branch, or have a tip that is an ancestor of descendant tips.
-3. Search the branch-grouped merge checklist by ticket, SHA or message. Check/uncheck individual merges, use global or branch all/none, or reset overrides. Search filters the checklist only; bulk actions cover all discovered events in their scope.
-4. Adjust ticket regex, default visibility, event spacing, lane width and compact labels. Drag to pan, scroll to explore, zoom or fit the diagram. Hover SVG labels for full commit messages and SHAs. Text is elided to fit lanes; compact mode uses one label line.
-5. Name and save the view. Create, duplicate, rename or delete views from the sidebar. JSON import creates a new unsaved view ID to avoid overwriting an existing saved view. Save it to retain it across restarts.
-6. Refresh/regenerate to reread Git. Export SVG also rereads Git before rendering. Export JSON contains current rules, including unsaved edits; it contains no history graph. Unsaved changes prompt before switching views or closing the tab.
+3. Choose **All commits** or **Merges & branching points only**. The latter hides ordinary single-parent commits but keeps selected-lane fork points. Use **Filter diagram by text** and **Apply filter** to show only matching commit markers: enter one literal pattern per line (any line may match, case insensitive). Messages, tickets and SHAs are searched; blank lines are ignored and an empty box clears the filter. Structural branch connections stay visible for context. Both settings are saved with the view.
+4. Search the branch-grouped merge checklist by ticket, SHA or message. Check/uncheck individual merges, use global or branch all/none, or reset overrides. Search filters the checklist only; bulk actions cover candidates in the current display mode and diagram filter, including those hidden by checklist search.
+5. Adjust ticket regex, default visibility, event spacing, lane width and compact labels. Drag to pan, scroll to explore, zoom or fit the diagram. Hover SVG labels for full commit messages and SHAs. Text is elided to fit lanes; compact mode uses one label line.
+6. Name and save the view. Create, duplicate, rename or delete views from the sidebar. JSON import creates a new unsaved view ID to avoid overwriting an existing saved view. Save it to retain it across restarts.
+7. Refresh/regenerate to reread Git. Export SVG also rereads Git before rendering. Export JSON contains current rules, including unsaved edits; it contains no history graph. Unsaved changes prompt before switching views or closing the tab.
 
 ## History, ownership and ancestry
 
-Extraction uses `git log --first-parent` with NUL-separated fields, retains all first-parent commits for ancestry, and selects commits with two or more parents as merge events (including octopus merges). Each event retains its SHA, parents, timestamp, full message and extracted tickets. The default regex is `\b[A-Z][A-Z0-9]+-\d+\b`; repeated tickets within one message are deduplicated. Different merge SHAs with the same ticket remain independent. Ticket-less merges use subject/SHA labels. Squash merges, rebased changes and cherry-picks with one parent are not classified as merges.
+Extraction uses `git log --first-parent` with NUL-separated fields, retains all first-parent commits for ancestry, and selects commits with two or more parents as merge events (including octopus merges). Each event retains its SHA, parents, timestamp, full message and extracted tickets. The default regex is `\b[A-Z][A-Z0-9]+-\d+\b`; repeated tickets within one message are deduplicated. Different merge SHAs with the same ticket remain independent. Ticket-less merges use subject/SHA labels. Squash merges, rebased changes and cherry-picks with one parent are not classified as merges; they appear in All commits mode if on a selected first-parent segment.
 
-**Ownership rule:** process the root first, then descendants in selection order (the order stored in `branches`). The first lane whose first-parent history contains a commit owns it. Shared history is therefore shown once. Descendant lanes contain only unclaimed merge events. An identical-history descendant can have an empty segment. To change descendant ownership priority, deselect/reselect branches, or reorder `branches` in exported JSON. Hiding events never changes ownership or the underlying graph.
+**Ownership rule:** process the root first, then descendants in selection order (the order stored in `branches`). The first lane whose first-parent history contains a commit owns it. Shared history is therefore shown once, for both ordinary commits and merges. Descendant lanes contain only unclaimed commits. An identical-history descendant can have an empty segment. To change descendant ownership priority, deselect/reselect branches, or reorder `branches` in exported JSON. Hiding events never changes ownership or the underlying graph.
 
 A displayed descendant must share a commit on its first-parent lineage with the root's first-parent lineage. For each descendant, the connection uses its nearest common first-parent ancestor with an already displayed lane. A closer shared ancestor with an earlier selected descendant takes priority over a more distant root ancestor. This supports nested descendants without requiring root-tip ancestry.
 
 **Every branch connection is dashed and explicitly inferred.** Shared Git ancestry cannot recover historical branch creation, original named-branch ownership or fork direction. The user-designated root supplies visual direction, not a claim about branch creation. A related branch whose relationship requires traversing second parents only is conservatively withheld with a warning. Unrelated histories are also withheld. The app never infers forks from branch names or draws lanes for unselected source branches. No cross-lane merge arrows are currently drawn.
 
-Commit rows follow a reverse topological ordering of current selected tips, rather than timestamp sorting. Parent events precede descendants even with clock skew. Non-visible events are omitted from layout; the commit graph still determines ordering. Inferred ancestors get layout rows even when they have no visible merge marker. SVG generation is deterministic for the same extracted history and view settings. Lane spacing prevents label collisions; full mode enforces a 72-pixel minimum even if imported JSON requests less.
+Commit rows follow Git’s newest-first topological ordering of current selected tips, rather than timestamp sorting. The timeline runs **newest at the top, oldest at the bottom**: descendants appear above their ancestors even with clock skew. Descendant lanes extend upward from their older inferred fork points. Non-visible events are omitted from layout; the commit graph still determines ordering. Inferred ancestors get layout rows even when they have no visible merge marker. SVG generation is deterministic for the same extracted history and view settings. Lane spacing prevents label collisions; full mode enforces a 72-pixel minimum even if imported JSON requests less.
 
 ## Tuned views and JSON v1
 
@@ -71,12 +72,15 @@ Views are stored as individual JSON files under `~/.git-outliner/views/`. Overri
   branches: ["refs/heads/main", "refs/heads/staging", ...],
   visibility: {
     default: "include" | "exclude",
-    overrides: { "<full merge SHA>": true | false, ... }
+    overrides: { "<full commit SHA>": true | false, ... }
   },
   tickets: { pattern: JavaScript regex source (no slash delimiters or flags) },
+  display: { mode: "merges" | "all", patterns: multiline literal text },
   layout: { spacing: integer 48..220, laneWidth: integer 240..600, compact: boolean }
 }
 ```
+
+`display` defaults to `{ mode: "merges", patterns: "" }` when absent, so existing v1 saved views remain compatible. The filter intersects explicit visibility rules; it does not erase overrides or remove ancestry links.
 
 `branches` contains 1–64 unique local refs and must contain `root`. IDs are UUIDs; event identifiers are full SHA-1 or SHA-256 Git object IDs, never tickets or list positions. `true` means explicitly included, `false` explicitly excluded; absence means follow the default policy. Global reset clears all explicit overrides, including unresolved ones; individual reset removes just one override. New discovered merges follow the saved default (initially include).
 
@@ -88,7 +92,7 @@ Every load, history refresh, selection change, presentation regeneration and SVG
 
 - A missing branch remains configured and is listed as unresolved. Reassign it explicitly using the warning controls, or remove a missing descendant. A missing root must be reassigned; dependent lanes are withheld until then.
 - An ancestry relationship that cannot be established gets a warning and no lane. Choose another root/branch, or remove the selection. Inferred relationships always have notices; these are collapsible when there are no unresolved selections.
-- An override whose SHA is absent from selected first-parent merge histories is retained and reported. It is reapplied if that exact SHA returns. Reset it, or use the explicit merge selection and confirmation to move it to another SHA. Tickets never trigger automatic remapping.
+- A commit override whose SHA is absent from selected first-parent histories is retained and reported. It is reapplied if that exact SHA returns. Reset it, or use the explicit commit selection and confirmation to move it to another SHA. Tickets never trigger automatic remapping.
 - New merges follow the default policy; exclusions survive a refresh or app restart.
 - If a history read fails, the app clears the displayed graph rather than exporting stale repository data. Shallow histories receive an incompleteness notice.
 

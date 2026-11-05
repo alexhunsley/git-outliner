@@ -417,3 +417,18 @@ summary {
     font-size: 20px;
   }
 }
+
+textarea {
+  font: inherit;
+  width: 100%;
+  padding: 9px;
+  border: 1px solid #cdd6cf;
+  border-radius: 5px;
+  background: #fffefa;
+  color: #253c3c;
+  resize: vertical;
+}
+textarea:focus {
+  outline: 2px solid #3c9b89;
+  outline-offset: 2px;
+}

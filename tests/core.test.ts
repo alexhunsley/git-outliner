@@ -247,3 +247,122 @@ test("imported narrow spacing remains collision-free and hidden events retain to
     await rm(f.dir, { recursive: true, force: true });
   }
 });
+
+test("newest events sit above ancestors and branch lanes end at older fork points", async () => {
+  const f = await setup();
+  try {
+    const h = await readHistory(f.path, f.view),
+      d = layout(h, f.view);
+    const y = (sha: string) =>
+      d.events.find((event) => event.commit.sha === sha)!.y;
+    assert.ok(y(f.commits.main) < y(f.commits.shared));
+    assert.ok(y(f.commits.release) < y(f.commits.staging));
+    assert.ok(d.links.every((link) => link.y2 < link.y1));
+    assert.ok(
+      d.lanes.every((lane) =>
+        d.events
+          .filter((event) => event.x === lane.x)
+          .every((event) => event.y >= lane.start && event.y <= lane.end),
+      ),
+    );
+    assert.match(renderSvg(h, f.view), /Newest to oldest/);
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
+test("multiline diagram filter matches any literal pattern in messages or SHAs and survives schema roundtrips", async () => {
+  const f = await setup();
+  try {
+    const h = await readHistory(f.path, f.view);
+    f.view.display.patterns = "\n search & DISCOVERY \r\nkeyboard navigation\n";
+    assert.deepEqual(
+      layout(h, f.view)
+        .events.map((event) => event.commit.sha)
+        .sort(),
+      [f.commits.staging, f.commits.release].sort(),
+    );
+    f.view.display.patterns = "angle brackets";
+    assert.deepEqual(
+      layout(h, f.view).events.map((event) => event.commit.sha),
+      [f.commits.staging],
+    );
+    f.view.display.patterns = f.commits.main.slice(0, 12);
+    assert.deepEqual(
+      layout(h, f.view).events.map((event) => event.commit.sha),
+      [f.commits.main],
+    );
+    f.view.visibility.overrides[f.commits.main] = false;
+    assert.equal(layout(h, f.view).events.length, 0);
+    assert.equal(layout(h, f.view).links.length, 2);
+    f.view.display.patterns = "[not a regex.*";
+    assert.equal(layout(h, f.view).events.length, 0);
+    f.view.display.patterns = " \n\n";
+    assert.equal(layout(h, f.view).events.length, 4);
+    assert.deepEqual(
+      ViewSchema.parse(JSON.parse(JSON.stringify(f.view))).display,
+      f.view.display,
+    );
+    const old = structuredClone(f.view) as Partial<typeof f.view>;
+    delete old.display;
+    assert.deepEqual(ViewSchema.parse(old).display, {
+      mode: "merges",
+      patterns: "",
+    });
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
+test("all-commit mode includes single commits; compact mode retains single-commit branching points", async () => {
+  const f = await setup();
+  try {
+    g(f.path, "switch", "staging");
+    g(
+      f.path,
+      "commit",
+      "--allow-empty",
+      "-m",
+      "CTR-450 Single commit at branch point",
+    );
+    const fork = g(f.path, "rev-parse", "HEAD");
+    g(f.path, "switch", "-c", "child");
+    g(f.path, "commit", "--allow-empty", "-m", "CTR-451 Plain child commit");
+    const child = g(f.path, "rev-parse", "HEAD");
+    g(f.path, "switch", "main");
+    g(f.path, "commit", "--allow-empty", "-m", "CTR-452 Plain root commit");
+    const plain = g(f.path, "rev-parse", "HEAD");
+    f.view.branches = [f.view.root, "refs/heads/staging", "refs/heads/child"];
+    const h = await readHistory(f.path, f.view);
+    const compact = layout(h, f.view).events.map((event) => event.commit.sha);
+    assert.ok(compact.includes(fork));
+    assert.ok(!compact.includes(child));
+    assert.ok(!compact.includes(plain));
+    f.view.display.mode = "all";
+    const all = layout(h, f.view).events;
+    assert.equal(all.length, 7);
+    assert.equal(new Set(all.map((event) => event.commit.sha)).size, 7);
+    assert.ok(
+      all.some(
+        (event) =>
+          event.commit.sha === child &&
+          event.commit.tickets.includes("CTR-451"),
+      ),
+    );
+    assert.ok(all.some((event) => event.commit.sha === plain));
+    f.view.visibility.overrides[plain] = false;
+    f.view.display.mode = "merges";
+    assert.ok(
+      !(await readHistory(f.path, f.view)).warnings.some(
+        (warning) => warning.sha === plain,
+      ),
+    );
+    f.view.display.mode = "all";
+    assert.ok(
+      !layout(h, f.view).events.some((event) => event.commit.sha === plain),
+    );
+    assert.equal(layout(h, f.view).links.length, 2);
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
