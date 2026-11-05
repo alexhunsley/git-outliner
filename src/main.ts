@@ -270,7 +270,7 @@ function draw() {
           .join("")}</div></section>
   <section><div class="eyebrow">03 / COMMITS & MERGES</div><label for="display-mode">Show</label><select id="display-mode"><option value="merges" ${view.display.mode === "merges" ? "selected" : ""}>Merges & branching points only</option><option value="all" ${view.display.mode === "all" ? "selected" : ""}>All commits</option></select><label for="filter-patterns">Filter diagram by text</label><textarea id="filter-patterns" rows="4" maxlength="10000" placeholder="CTR-123&#10;fix login">${esc(drafts.filter)}</textarea><p class="hint">One literal pattern per line. Matches any line, ignoring case, in the message, tickets or SHA. Blank shows all. Branch connections remain for context.</p><button data-action="filter">Apply filter</button><label class="sr" for="search">Search checklist</label><input id="search" type="search" placeholder="Search tickets, subjects, SHA…" value="${esc(query)}"><div class="row"><button data-action="all">All</button><button data-action="none">None</button><button data-action="defaults">Reset overrides</button></div><p class="hint">Controls apply to all discovered events, in this display mode and text filter, including those hidden by checklist search.</p><div id="events">${eventList()}</div></section>
   ${rewritePanel()}
-  <section><details data-panel="presentation"><summary>Parsing & presentation</summary><label for="pattern">Ticket regex</label><input id="pattern" value="${esc(drafts.ticketPattern)}"><button data-action="pattern">Apply regex</button><label for="policy">New commits / merges default to</label><select id="policy"><option value="include" ${view.visibility.default === "include" ? "selected" : ""}>Included</option><option value="exclude" ${view.visibility.default === "exclude" ? "selected" : ""}>Excluded</option></select><label for="spacing">Event spacing within a lane</label><input id="spacing" type="range" min="72" max="220" step="1" value="${view.layout.spacing}"><label for="width">Lane spacing</label><input id="width" type="range" min="240" max="600" step="10" value="${view.layout.laneWidth}"><label class="check"><input id="compact" type="checkbox" ${view.layout.compact ? "checked" : ""}>Compact labels</label></details></section>`
+  <section><details data-panel="presentation"><summary>Parsing & presentation</summary><label for="pattern">Ticket regex</label><input id="pattern" value="${esc(drafts.ticketPattern)}"><button data-action="pattern">Apply regex</button><label for="policy">New commits / merges default to</label><select id="policy"><option value="include" ${view.visibility.default === "include" ? "selected" : ""}>Included</option><option value="exclude" ${view.visibility.default === "exclude" ? "selected" : ""}>Excluded</option></select><label for="spacing">Event spacing within a lane</label><input id="spacing" type="range" min="72" max="220" step="1" value="${view.layout.spacing}"><label for="padding">Vertical label padding: ${view.layout.padding}px</label><input id="padding" type="range" min="0" max="120" step="1" value="${view.layout.padding}"><p class="hint">Minimum gap between labels in a branch. Event spacing can add extra room.</p><label for="width">Lane spacing</label><input id="width" type="range" min="240" max="600" step="10" value="${view.layout.laneWidth}"><label class="check"><input id="multiline" type="checkbox" ${view.layout.multiline ? "checked" : ""}>Multi-line commit messages</label><label class="check"><input id="show-metadata" type="checkbox" ${!view.layout.compact ? "checked" : ""}>Show date and commit SHA</label></details></section>`
       : ""
   }</fieldset></aside>
   <article><div class="toolbar"><div><div class="eyebrow">LIVE REPOSITORY DIAGRAM</div><h1>${esc(view?.name || "History, with a little clarity.")}</h1><span class="muted">${history ? `${history.lanes.length} lanes · ${count} visible ${view?.display.mode === "all" ? "commits" : "merges / branch points"} · newest to oldest ↓` : "Curate branches and merges into a reusable view."}</span></div><div class="row"><button data-action="refresh" ${!view || busy ? "disabled" : ""}>↻ Refresh / regenerate</button><button data-action="svg" ${!history || busy ? "disabled" : ""}>Export SVG ↗</button></div></div>
@@ -743,9 +743,17 @@ app.addEventListener("change", (event) => {
     void change(() => {
       view!.layout.laneWidth = Number(input.value);
     });
-  if (input.id === "compact")
+  if (input.id === "padding")
     void change(() => {
-      view!.layout.compact = input.checked;
+      view!.layout.padding = Number(input.value);
+    });
+  if (input.id === "multiline")
+    void change(() => {
+      view!.layout.multiline = input.checked;
+    });
+  if (input.id === "show-metadata")
+    void change(() => {
+      view!.layout.compact = !input.checked;
     });
 });
 app.addEventListener("input", (event) => {

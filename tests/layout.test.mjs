@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { wrapText } from "../src/text.ts";
-import { newView } from "../src/model.ts";
+import { newView, ViewSchema } from "../src/model.ts";
 import { layout, renderSvg } from "../src/layout.ts";
 const measure = (text, size) => [...text].length * size * 0.65;
 test("wrapping preserves words, Unicode, paragraphs and oversized identifiers without ellipses", () => {
@@ -272,4 +272,69 @@ test("lane spacing applies within a lane, and nested forks and filtered bases re
   const d = layout(history, view, measure, 1100);
   assertNoCollisions(d);
   assert.equal(d.links.length, 2);
+});
+
+test("multiline and metadata switches are independent, and padding controls branch label gaps", () => {
+  const { view, history } = widthFixture();
+  const legacy = structuredClone(view);
+  delete legacy.layout.multiline;
+  delete legacy.layout.padding;
+  const restored = ViewSchema.parse(legacy);
+  assert.equal(restored.layout.multiline, true);
+  assert.equal(restored.layout.padding, 8);
+  assert.equal(
+    ViewSchema.safeParse({ ...view, layout: { ...view.layout, padding: -1 } })
+      .success,
+    false,
+  );
+  history.lanes.forEach((lane) =>
+    lane.commits.forEach((commit) => {
+      commit.body = commit.subject;
+    }),
+  );
+  view.layout.spacing = 48;
+  const expanded = layout(history, view, measure, 600);
+  view.layout.multiline = false;
+  const single = layout(history, view, measure, 600);
+  assert.ok(expanded.events.some((e) => e.lines.length > 1));
+  assert.ok(single.events.every((e) => e.lines.length === 1));
+  assert.ok(single.events.some((e) => e.lines[0].endsWith("…")));
+  assert.ok(
+    single.events.every((e) => measure(e.lines[0], 13) <= e.width - 16),
+  );
+  const fullHeight = single.events[0].height;
+  view.layout.compact = true;
+  assert.equal(
+    layout(history, view, measure, 600).events[0].height,
+    fullHeight - 20,
+  );
+  const doc = new JSDOM(renderSvg(history, view, measure, 600), {
+    contentType: "image/svg+xml",
+  }).window.document;
+  assert.equal(
+    doc.querySelectorAll('[data-event] text[font-size="10"]').length,
+    0,
+  );
+  assert.match(
+    doc.querySelector("[data-event] title").textContent,
+    /A full label/,
+  );
+  view.layout.multiline = true;
+  assert.ok(
+    layout(history, view, measure, 600).events.some((e) => e.lines.length > 1),
+  );
+  view.layout.padding = 100;
+  const padded = layout(history, view, measure, 600);
+  for (const lane of padded.lanes) {
+    const events = padded.events
+      .filter((e) => e.x === lane.x)
+      .sort((a, b) => a.y - b.y);
+    assert.ok(
+      events
+        .slice(1)
+        .every((e, i) => e.y - events[i].y - events[i].height >= 100),
+    );
+  }
+  view.layout.padding = 0;
+  assert.ok(layout(history, view, measure, 600).height < padded.height);
 });

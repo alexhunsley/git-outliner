@@ -1,5 +1,6 @@
 import {
   wrapText,
+  elideText,
   fallbackMeasure,
   SVG_FONT,
   type MeasureText,
@@ -114,11 +115,9 @@ export function layout(
         .filter((c) => visible(view, c.sha))
         .map((commit) => {
           const labelWidth = labelRight(i, commit.sha) - laneX(i) - 14;
-          const lines = wrapText(
-            commitLabel(commit, view),
-            labelWidth - 16,
-            measure,
-          );
+          const lines = view.layout.multiline
+            ? wrapText(commitLabel(commit, view), labelWidth - 16, measure)
+            : [elideText(commitLabel(commit, view), labelWidth - 16, measure)];
           return [
             commit.sha,
             {
@@ -131,9 +130,15 @@ export function layout(
     ),
   );
   // Sweep newest first. Only horizontally overlapping geometry consumes label height.
-  type Box = { left: number; right: number; top: number; bottom: number };
+  type Box = {
+    lane?: number;
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+  };
   let placed: Box[] = [];
-  const previousOnLane = new Map<number, number>();
+  const previousOnLane = new Map<number, { y: number; bottom: number }>();
   const owner = new Map(
     history.lanes.flatMap((lane, i) =>
       lane.commits.map((commit) => [commit.sha, i] as const),
@@ -144,12 +149,15 @@ export function layout(
   const y = new Map<string, number>();
   for (const sha of ordered) {
     // Future geometry starts no higher than 40 units above its circle.
-    placed = placed.filter((box) => box.bottom + 8 > previousY + 18 - 40);
+    placed = placed.filter(
+      (box) => box.bottom + 8 > previousY + 18 - 40 - view.layout.padding,
+    );
     const lane = owner.get(sha);
     const label = labels.get(sha);
     const boxes: Box[] = [];
     if (label && lane !== undefined)
       boxes.push({
+        lane,
         left: laneX(lane) - 8,
         right: laneX(lane) + 14 + label.width,
         top: -14,
@@ -177,16 +185,31 @@ export function layout(
       start + 8 - Math.min(0, ...boxes.map((box) => box.top)),
     );
     if (label && lane !== undefined && previousOnLane.has(lane))
-      nextY = Math.max(nextY, previousOnLane.get(lane)! + spacing);
+      nextY = Math.max(
+        nextY,
+        previousOnLane.get(lane)!.y + spacing,
+        previousOnLane.get(lane)!.bottom + view.layout.padding + 14,
+      );
     for (const box of boxes) {
       for (const prior of placed) {
         if (box.left < prior.right && prior.left < box.right)
-          nextY = Math.max(nextY, prior.bottom + 8 - box.top);
+          nextY = Math.max(
+            nextY,
+            prior.bottom +
+              (label &&
+              lane !== undefined &&
+              prior.lane === lane &&
+              box.lane === lane
+                ? view.layout.padding
+                : 8) -
+              box.top,
+          );
       }
     }
     y.set(sha, nextY);
     previousY = nextY;
-    if (label && lane !== undefined) previousOnLane.set(lane, nextY);
+    if (label && lane !== undefined)
+      previousOnLane.set(lane, { y: nextY, bottom: nextY + label.height - 14 });
     for (const box of boxes) {
       placed.push({ ...box, top: box.top + nextY, bottom: box.bottom + nextY });
       bottom = Math.max(bottom, box.bottom + nextY);

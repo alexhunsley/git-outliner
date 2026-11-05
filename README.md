@@ -36,7 +36,7 @@ The script creates `.demo/` and prints its absolute path. It refuses to overwrit
 2. Set the diagram root and check additional local branches. The root need not be the repository's initial branch, or have a tip that is an ancestor of descendant tips.
 3. Choose **All commits** or **Merges & branching points only**. The latter hides ordinary single-parent commits but keeps selected-lane fork points. Use **Filter diagram by text** and **Apply filter** to show only matching commit markers: enter one literal pattern per line (any line may match, case insensitive). Messages, tickets and SHAs are searched; blank lines are ignored and an empty box clears the filter. Structural branch connections stay visible for context. Both settings are saved with the view.
 4. Search the branch-grouped merge checklist by ticket, SHA or message. Check/uncheck individual merges, use global or branch all/none, or reset overrides. Search filters the checklist only; bulk actions cover candidates in the current display mode and diagram filter, including those hidden by checklist search.
-5. Adjust ticket regex, default visibility, event spacing, lane width and compact labels. Drag to pan, scroll to explore, zoom or fit the diagram. Hover SVG labels for full commit messages and SHAs. Subjects appear once and wrap in full within available horizontal space. A single lane and the rightmost lane use the window’s free width; older labels can borrow space beyond lanes that have ended. Labels stop before active lanes and branch connections. Labels and branch headings grow to fit their text; compact mode hides date/SHA metadata but still wraps the complete subject.
+5. Adjust ticket regex, default visibility, event spacing, lane width and compact labels. Drag to pan, scroll to explore, zoom or fit the diagram. Hover SVG labels for full commit messages and SHAs. Subjects appear once and wrap in full within available horizontal space. A single lane and the rightmost lane use the window’s free width; older labels can borrow space beyond lanes that have ended. Labels stop before active lanes and branch connections. Labels and branch headings grow to fit their text; **Multi-line commit messages** controls wrapping; when off, labels use one line and ellide only if necessary. **Show date and commit SHA** independently controls metadata. Original full messages remain on hover. **Vertical label padding** sets the minimum gap between label cards in a branch (0–120px); the existing event-spacing minimum can add more room.
 6. Name and save the view. Create, duplicate, rename or delete views from the sidebar. JSON import creates a new unsaved view ID to avoid overwriting an existing saved view. Save it to retain it across restarts.
 7. Refresh/regenerate to reread Git. Export SVG also rereads Git before rendering. Export JSON contains current rules, including unsaved edits; it contains no history graph. Unsaved changes prompt before switching views; closing the tab retains them in browser storage.
 
@@ -106,9 +106,11 @@ Views are stored as individual JSON files under `~/.git-outliner/views/`. Overri
   rewrites: [{ pattern: regex source, replacement: "$1: $2" }, ...],
   tickets: { pattern: JavaScript regex source (no slash delimiters or flags) },
   display: { mode: "merges" | "all", patterns: multiline literal text },
-  layout: { spacing: integer 48..220, laneWidth: integer 240..600, compact: boolean }
+  layout: { spacing: integer 48..220, laneWidth: integer 240..600, compact: boolean, multiline: boolean, padding: integer 0..120 }
 }
 ```
+
+Layout additions default to `multiline: true` and `padding: 8` for existing views/settings. The legacy `compact` flag remains compatible and is the inverse of the new date/SHA toggle. All controls persist in named views, settings JSON and browser local storage.
 
 `rewrites` defaults to an empty array, with a maximum of 20 rules (pattern up to 500 characters, replacement up to 2,000). Patterns must be valid JavaScript regular expressions.
 

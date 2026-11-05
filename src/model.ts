@@ -38,6 +38,8 @@ export const ViewSchema = z
         spacing: z.number().int().min(48).max(220),
         laneWidth: z.number().int().min(240).max(600),
         compact: z.boolean(),
+        multiline: z.boolean().default(true),
+        padding: z.number().int().min(0).max(120).default(8),
       })
       .strict(),
   })
@@ -129,7 +131,13 @@ export function newView(repository: Repository): TunedView {
     tickets: { pattern: DEFAULT_PATTERN },
     rewrites: [],
     display: { mode: "merges", patterns: "" },
-    layout: { spacing: 92, laneWidth: 320, compact: false },
+    layout: {
+      spacing: 92,
+      laneWidth: 320,
+      compact: false,
+      multiline: true,
+      padding: 8,
+    },
   };
 }
 

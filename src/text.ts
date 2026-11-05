@@ -48,3 +48,27 @@ export function wrapText(
   }
   return lines;
 }
+
+export function elideText(
+  text: string,
+  width: number,
+  measure: MeasureText,
+  size = 13,
+  weight = 650,
+): string {
+  const single = text.replace(/\s+/gu, " ").trim();
+  if (measure(single, size, weight) <= width) return single;
+  const glyphs = Array.from(
+    new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(single),
+    (part) => part.segment,
+  );
+  let low = 0,
+    high = glyphs.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (measure(glyphs.slice(0, mid).join("") + "…", size, weight) <= width)
+      low = mid;
+    else high = mid - 1;
+  }
+  return glyphs.slice(0, low).join("") + "…";
+}
