@@ -6,6 +6,7 @@ import { Worker } from "node:worker_threads";
 import { sameRepository } from "../src/model.ts";
 import type { Commit, Repository, TunedView, History } from "../src/model.ts";
 import { rewriteMessages } from "./rewrite.ts";
+import { deriveHierarchy } from "./hierarchy.ts";
 const exec = promisify(execFile);
 export async function git(path: string, args: string[]): Promise<string> {
   try {
@@ -175,42 +176,12 @@ export async function readHistory(
     );
   }
   if (histories.has(view.root)) {
-    const connected = [view.root];
-    for (const ref of refs.filter((r) => r !== view.root && histories.has(r))) {
-      const branchHistory = histories.get(ref)!;
-      const rootSet = new Set(histories.get(view.root)!.map((c) => c.sha));
-      const base = branchHistory.find((c) => rootSet.has(c.sha));
-      // First-parent common ancestry supports an inferred lineage, not a historical branch creation claim.
-      if (!base) {
-        result.unresolved.push(ref);
-        result.warnings.push({
-          kind: "ancestry",
-          ref,
-          message: `Cannot establish ${ref} on the root's first-parent lineage. Its lane is withheld; choose a different root or branch.`,
-        });
-        continue;
-      }
-      let parent = view.root;
-      let nearest = branchHistory.findIndex((c) => c.sha === base.sha);
-      let chosen = base.sha;
-      for (const candidate of connected.slice(1)) {
-        const set = new Set(histories.get(candidate)!.map((c) => c.sha));
-        const index = branchHistory.findIndex((c) => set.has(c.sha));
-        if (index >= 0 && index < nearest) {
-          nearest = index;
-          parent = candidate;
-          chosen = branchHistory[index].sha;
-        }
-      }
-      connected.push(ref);
-      result.links.push({ branch: ref, parent, base: chosen, inferred: true });
-      result.warnings.push({
-        kind: "ancestry",
-        ref,
-        message: `${ref}: connection uses common first-parent ancestor ${chosen.slice(0, 8)}. Historical branch creation and direction cannot be proven; the selected root defines the visual direction.`,
-      });
-    }
-    // Parent lanes own shared first-parent commits; descendant lanes contain only their unique segments.
+    const hierarchy = deriveHierarchy(histories, view);
+    result.links = hierarchy.links;
+    result.warnings.push(...hierarchy.warnings);
+    result.unresolved.push(...hierarchy.unresolved);
+    const connected = hierarchy.ordered;
+    // Ownership follows the resolved hierarchy, never checkbox selection order.
     const owned = new Set<string>();
     for (const ref of connected) {
       const commits = histories.get(ref)!;

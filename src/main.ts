@@ -267,7 +267,19 @@ function draw() {
             (b) =>
               `<label class="check"><input type="checkbox" data-branch="${esc(b.ref)}" ${view!.branches.includes(b.ref) ? "checked" : ""}><span>${esc(label(b.ref))}</span></label>`,
           )
-          .join("")}</div></section>
+          .join("")}</div>${view!.branches
+          .filter((ref) => ref !== view!.root)
+          .map(
+            (ref) =>
+              `<label>Parent of ${esc(label(ref))}<select data-parent="${esc(ref)}"><option value="">Auto</option>${view!.branchParents[ref] && !view!.branches.includes(view!.branchParents[ref]) ? `<option selected value="${esc(view!.branchParents[ref])}">Unavailable: ${esc(label(view!.branchParents[ref]))}</option>` : ""}${view!.branches
+                .filter((parent) => parent !== ref)
+                .map(
+                  (parent) =>
+                    `<option value="${esc(parent)}" ${view!.branchParents[ref] === parent ? "selected" : ""}>${esc(label(parent))}</option>`,
+                )
+                .join("")}</select></label>`,
+          )
+          .join("")}</section>
   <section><div class="eyebrow">03 / COMMITS & MERGES</div><label for="display-mode">Show</label><select id="display-mode"><option value="merges" ${view.display.mode === "merges" ? "selected" : ""}>Merges & branching points only</option><option value="all" ${view.display.mode === "all" ? "selected" : ""}>All commits</option></select><label for="filter-patterns">Filter diagram by text</label><textarea id="filter-patterns" rows="4" maxlength="10000" placeholder="CTR-123&#10;fix login">${esc(drafts.filter)}</textarea><p class="hint">One literal pattern per line. Matches any line, ignoring case, in the message, tickets or SHA. Blank shows all. Branch connections remain for context.</p><button data-action="filter">Apply filter</button><label class="sr" for="search">Search checklist</label><input id="search" type="search" placeholder="Search tickets, subjects, SHA…" value="${esc(query)}"><div class="row"><button data-action="all">All</button><button data-action="none">None</button><button data-action="defaults">Reset overrides</button></div><p class="hint">Controls apply to all discovered events, in this display mode and text filter, including those hidden by checklist search.</p><div id="events">${eventList()}</div></section>
   ${rewritePanel()}
   <section><details data-panel="presentation"><summary>Parsing & presentation</summary><label for="pattern">Ticket regex</label><input id="pattern" value="${esc(drafts.ticketPattern)}"><button data-action="pattern">Apply regex</button><label for="policy">New commits / merges default to</label><select id="policy"><option value="include" ${view.visibility.default === "include" ? "selected" : ""}>Included</option><option value="exclude" ${view.visibility.default === "exclude" ? "selected" : ""}>Excluded</option></select><label for="spacing">Event spacing: ${view.layout.padding}px</label><input id="spacing" type="range" min="0" max="120" step="1" value="${view.layout.padding}"><p class="hint">Vertical gap between labels in a branch. Zero adds no gap; connections and intervening events may still require room.</p><label for="width">Lane width</label><input id="width" type="range" min="240" max="600" step="10" value="${view.layout.laneWidth}"><label class="check"><input id="single-line" type="checkbox" ${!view.layout.multiline ? "checked" : ""}>Single line commit msg</label><label class="check"><input id="show-metadata" type="checkbox" ${!view.layout.compact ? "checked" : ""}>Show date + hash</label></details></section>`
@@ -425,6 +437,12 @@ app.addEventListener("click", (event) => {
         ...new Set(view!.branches.map((r) => (r === w.ref ? replacement : r))),
       ];
       if (view!.root === w.ref) view!.root = replacement;
+      view!.branchParents = Object.fromEntries(
+        Object.entries(view!.branchParents).map(([child, parent]) => [
+          child === w.ref ? replacement : child,
+          parent === w.ref ? replacement : parent,
+        ]),
+      );
     });
     return;
   }
@@ -719,6 +737,11 @@ app.addEventListener("change", (event) => {
   if (input.dataset.event)
     void change(() => {
       view!.visibility.overrides[input.dataset.event!] = input.checked;
+    });
+  if (input.dataset.parent)
+    void change(() => {
+      if (input.value) view!.branchParents[input.dataset.parent!] = input.value;
+      else delete view!.branchParents[input.dataset.parent!];
     });
   if (input.id === "root")
     void change(() => {

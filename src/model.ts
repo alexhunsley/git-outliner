@@ -18,6 +18,7 @@ export const ViewSchema = z
       .strict(),
     root: ref,
     branches: z.array(ref).min(1).max(64),
+    branchParents: z.record(ref, ref).default({}),
     visibility: z
       .object({
         default: z.enum(["include", "exclude"]),
@@ -127,6 +128,7 @@ export function newView(repository: Repository): TunedView {
     repository: repository.identity,
     root,
     branches: [root],
+    branchParents: {},
     visibility: { default: "include", overrides: {} },
     tickets: { pattern: DEFAULT_PATTERN },
     rewrites: [],

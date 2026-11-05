@@ -429,3 +429,58 @@ test("real interleaved branch histories overlap labels vertically with date-orde
     await rm(f.dir, { recursive: true, force: true });
   }
 });
+
+test("hierarchy and shared ownership are independent of selection order and commit dates", async () => {
+  const f = await setup();
+  try {
+    const expected = await readHistory(f.path, f.view);
+    f.view.branches = [
+      f.view.root,
+      "refs/heads/release/1.0",
+      "refs/heads/staging",
+    ];
+    const reversed = await readHistory(f.path, f.view);
+    assert.deepEqual(reversed.lanes, expected.lanes);
+    assert.deepEqual(reversed.links, expected.links);
+    assert.equal(
+      reversed.links.find((l) => l.branch === "refs/heads/release/1.0")!.parent,
+      "refs/heads/staging",
+    );
+    // Advance the parent after the fork: named branch direction is no longer provable from tips.
+    g(f.path, "switch", "staging");
+    g(f.path, "commit", "--allow-empty", "-m", "Parent advances after fork");
+    const ambiguous = await readHistory(f.path, f.view);
+    assert.ok(
+      ambiguous.warnings.some((w) => w.message.includes("Ambiguous lineage")),
+    );
+    assert.ok(
+      !ambiguous.links.some(
+        (l) =>
+          l.branch === "refs/heads/staging" &&
+          l.parent === "refs/heads/release/1.0",
+      ),
+    );
+    f.view.branchParents["refs/heads/release/1.0"] = "refs/heads/staging";
+    const chosen = await readHistory(f.path, f.view);
+    assert.equal(
+      chosen.links.find((l) => l.branch === "refs/heads/release/1.0")!.parent,
+      "refs/heads/staging",
+    );
+    assert.deepEqual(
+      ViewSchema.parse(JSON.parse(JSON.stringify(f.view))).branchParents,
+      f.view.branchParents,
+    );
+    f.view.branchParents["refs/heads/staging"] = "refs/heads/release/1.0";
+    const cycle = await readHistory(f.path, f.view);
+    assert.equal(cycle.lanes.length, 1);
+    assert.ok(cycle.warnings.some((w) => /cycl/.test(w.message)));
+    f.view.branchParents = { "refs/heads/staging": "refs/heads/missing" };
+    assert.ok(
+      (await readHistory(f.path, f.view)).unresolved.includes(
+        "refs/heads/staging",
+      ),
+    );
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
