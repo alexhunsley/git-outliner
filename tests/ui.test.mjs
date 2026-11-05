@@ -496,6 +496,18 @@ test("window resize rewraps a single lane while zoom and SVG export retain layou
     b.w.dispatchEvent(new b.w.Event("resize"));
     await waitWidth(552);
     assert.equal(b.find("#zoom-label").textContent, "120%");
+    // A short viewport must not make Fit shrink the diagram to its height.
+    Object.defineProperty(b.w.HTMLElement.prototype, "clientHeight", {
+      configurable: true,
+      get() {
+        return this.id === "viewport" ? 40 : 0;
+      },
+    });
+    await b.click('[data-action="fit"]');
+    assert.equal(b.find("#zoom-label").textContent, "100%");
+    assert.equal(parseFloat(b.find("#diagram").style.width), 552);
+    assert.ok(parseFloat(b.find("#diagram").style.height) > 40);
+
     const screen = new JSDOM(b.find("#diagram svg").outerHTML, {
       contentType: "image/svg+xml",
     }).window.document;

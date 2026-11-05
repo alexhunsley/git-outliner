@@ -274,7 +274,7 @@ function draw() {
       : ""
   }</fieldset></aside>
   <article><div class="toolbar"><div><div class="eyebrow">LIVE REPOSITORY DIAGRAM</div><h1>${esc(view?.name || "History, with a little clarity.")}</h1><span class="muted">${history ? `${history.lanes.length} lanes · ${count} visible ${view?.display.mode === "all" ? "commits" : "merges / branch points"} · newest to oldest ↓` : "Curate branches and merges into a reusable view."}</span></div><div class="row"><button data-action="refresh" ${!view || busy ? "disabled" : ""}>↻ Refresh / regenerate</button><button data-action="svg" ${!history || busy ? "disabled" : ""}>Export SVG ↗</button></div></div>
-  ${history && view ? `<div class="warnings">${warningList()}</div><div class="canvas-controls"><button data-action="minus" aria-label="Zoom out">−</button><span id="zoom-label">${Math.round(scale * 100)}%</span><button data-action="plus" aria-label="Zoom in">+</button><button data-action="fit">Fit to view</button><span class="hint">Drag to pan · scroll to explore · hover labels for full messages</span></div><div id="viewport" tabindex="0" aria-label="Scrollable diagram"><div id="diagram" style="width:${getSvgSize(svg, "width") * scale}px;height:${getSvgSize(svg, "height") * scale}px"><div style="transform:scale(${scale});transform-origin:top left">${svg}</div></div></div>` : `<div class="empty"><div class="empty-symbol">⑂</div><h2>Your repository. Your story.</h2><p>Open a local Git repository, choose a root and descendant branches,<br>then tune the merges you want to show.</p><p class="hint">Saved rules follow your live history. Export clean, vector SVGs.</p></div>`}</article></main><input id="import-file" type="file" accept=".json,application/json" hidden><input id="settings-file" type="file" accept=".json,application/json" hidden>`;
+  ${history && view ? `<div class="warnings">${warningList()}</div><div class="canvas-controls"><button data-action="minus" aria-label="Zoom out">−</button><span id="zoom-label">${Math.round(scale * 100)}%</span><button data-action="plus" aria-label="Zoom in">+</button><button data-action="fit">Fit width</button><span class="hint">Drag to pan · scroll to explore · hover labels for full messages</span></div><div id="viewport" tabindex="0" aria-label="Scrollable diagram"><div id="diagram" style="width:${getSvgSize(svg, "width") * scale}px;height:${getSvgSize(svg, "height") * scale}px"><div style="transform:scale(${scale});transform-origin:top left">${svg}</div></div></div>` : `<div class="empty"><div class="empty-symbol">⑂</div><h2>Your repository. Your story.</h2><p>Open a local Git repository, choose a root and descendant branches,<br>then tune the merges you want to show.</p><p class="hint">Saved rules follow your live history. Export clean, vector SVGs.</p></div>`}</article></main><input id="import-file" type="file" accept=".json,application/json" hidden><input id="settings-file" type="file" accept=".json,application/json" hidden>`;
   const nextViewport = document.querySelector("#viewport");
   if (nextViewport) {
     nextViewport.scrollLeft = scroll[0];
@@ -638,14 +638,9 @@ app.addEventListener("click", (event) => {
     draw();
   }
   if (action === "fit" && history && view) {
-    const vp = document.querySelector("#viewport")!;
-    const svg = renderSvg(history, view);
-    scale = Math.min(
-      1.5,
-      (vp.clientWidth - 32) / getSvgSize(svg, "width"),
-      (vp.clientHeight - 32) / getSvgSize(svg, "height"),
-    );
-    scale = Math.max(0.05, scale);
+    const available = usableWidth();
+    if (!available || available <= 0) return;
+    scale = available / getSvgSize(renderSvg(history, view), "width");
     draw();
     const next = document.querySelector("#viewport")!;
     next.scrollLeft = 0;
