@@ -232,7 +232,7 @@ test("interleaved lane labels share vertical space while circles keep strict new
 });
 test("lane spacing applies within a lane, and nested forks and filtered bases remain collision-free", () => {
   const { view, history, hashes } = widthFixture();
-  view.layout.spacing = 180;
+  view.layout.padding = 100;
   history.lanes.forEach((l) =>
     l.commits.forEach((c) => (c.subject = "Short subject")),
   );
@@ -244,7 +244,11 @@ test("lane spacing applies within a lane, and nested forks and filtered bases re
       const events = d.events
         .filter((e) => e.x === lane.x)
         .sort((a, b) => a.y - b.y);
-      assert.ok(events.slice(1).every((e, i) => e.y - events[i].y >= 180));
+      assert.ok(
+        events
+          .slice(1)
+          .every((e, i) => e.y - events[i].y - events[i].height >= 100),
+      );
     }
     view.visibility.overrides[hashes[1]] = false;
     d = layout(history, view, measure, 1000);
@@ -337,4 +341,29 @@ test("multiline and metadata switches are independent, and padding controls bran
   }
   view.layout.padding = 0;
   assert.ok(layout(history, view, measure, 600).height < padded.height);
+});
+
+test("zero event spacing removes all added gap on a branch despite legacy circle spacing", () => {
+  const { view, history } = widthFixture();
+  history.lanes = history.lanes.slice(0, 1);
+  history.links = [];
+  view.branches = [view.root];
+  view.layout.spacing = 220;
+  view.layout.padding = 0;
+  view.layout.multiline = false;
+  for (const compact of [true, false]) {
+    view.layout.compact = compact;
+    const events = layout(history, view, measure, 1000).events.sort(
+      (a, b) => a.y - b.y,
+    );
+    for (let i = 1; i < events.length; i++)
+      assert.equal(events[i].y - events[i - 1].y - events[i - 1].height, 0);
+    view.layout.padding = 17;
+    const padded = layout(history, view, measure, 1000).events.sort(
+      (a, b) => a.y - b.y,
+    );
+    for (let i = 1; i < padded.length; i++)
+      assert.equal(padded[i].y - padded[i - 1].y - padded[i - 1].height, 17);
+    view.layout.padding = 0;
+  }
 });

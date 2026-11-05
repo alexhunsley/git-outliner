@@ -250,7 +250,7 @@ export async function readHistory(
     result.order = (
       await git(repository.path, [
         "rev-list",
-        "--topo-order",
+        "--date-order",
         "--reverse",
         ...tips,
         "--",

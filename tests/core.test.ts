@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
@@ -362,6 +363,68 @@ test("all-commit mode includes single commits; compact mode retains single-commi
       !layout(h, f.view).events.some((event) => event.commit.sha === plain),
     );
     assert.equal(layout(h, f.view).links.length, 2);
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
+test("real interleaved branch histories overlap labels vertically with date-ordered staggered circles", async () => {
+  const f = await setup();
+  try {
+    const dated = (branch: string, day: number) => {
+      g(f.path, "switch", branch);
+      execFileSync(
+        "git",
+        [
+          "-C",
+          f.path,
+          "commit",
+          "--allow-empty",
+          "-m",
+          `${branch}: ` +
+            "A sufficiently long subject to require several lines of label text. ".repeat(
+              5,
+            ),
+        ],
+        {
+          stdio: "pipe",
+          env: {
+            ...process.env,
+            GIT_AUTHOR_DATE: `2026-01-${day}T12:00:00Z`,
+            GIT_COMMITTER_DATE: `2026-01-${day}T12:00:00Z`,
+          },
+        },
+      );
+      return g(f.path, "rev-parse", "HEAD");
+    };
+    const main10 = dated("main", 10),
+      main12 = dated("main", 12),
+      child11 = dated("staging", 11),
+      child13 = dated("staging", 13);
+    f.view.branches = [f.view.root, "refs/heads/staging"];
+    f.view.display.mode = "all";
+    f.view.layout.laneWidth = 240;
+    const h = await readHistory(f.path, f.view),
+      d = layout(h, f.view, undefined, 700);
+    const added = new Set([main10, main12, child11, child13]);
+    const events = d.events
+      .filter((e) => added.has(e.commit.sha))
+      .sort((a, b) => a.y - b.y);
+    assert.deepEqual(
+      events.map((e) => e.commit.sha),
+      [child13, main12, child11, main10],
+    );
+    assert.equal(events[1].y - events[0].y, 18);
+    assert.ok(events[1].y - 14 < events[0].y - 14 + events[0].height);
+    assert.ok(events.every((e) => e.lines.length > 1));
+    for (let i = 1; i < events.length; i++)
+      assert.ok(events[i].y - events[i - 1].y >= 18);
+    // Date order must still respect ancestry when a child's clock moves backwards.
+    const backdated = dated("staging", 2);
+    const updated = await readHistory(f.path, f.view);
+    assert.ok(
+      updated.order.indexOf(backdated) > updated.order.indexOf(child13),
+    );
   } finally {
     await rm(f.dir, { recursive: true, force: true });
   }

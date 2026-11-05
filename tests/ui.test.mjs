@@ -311,9 +311,8 @@ test("browser autosaves applied settings and drafts, restores live repository, a
     await b.change(`[data-event="${commits.main}"]`, false);
     await b.change("#display-mode", "all");
     await b.change("#show-metadata", false);
-    await b.change("#multiline", false);
-    await b.change("#padding", "80");
-    await b.change("#spacing", "130");
+    await b.change("#single-line", true);
+    await b.change("#spacing", "80");
     await b.change("#width", "400");
     b.input("#filter-patterns", "CTR-100\nCTR-201");
     await b.click('[data-action="filter"]');
@@ -364,9 +363,8 @@ test("browser autosaves applied settings and drafts, restores live repository, a
     assert.equal(resumed.find("#rewrite-sample").value, "Preview sample");
     assert.equal(resumed.find("#search").value, "foundation");
     assert.equal(resumed.find("#show-metadata").checked, false);
-    assert.equal(resumed.find("#multiline").checked, false);
-    assert.equal(resumed.find("#padding").value, "80");
-    assert.equal(resumed.find("#spacing").value, "130");
+    assert.equal(resumed.find("#single-line").checked, true);
+    assert.equal(resumed.find("#spacing").value, "80");
     assert.equal(resumed.find('[data-panel="presentation"]').open, true);
     assert.equal(resumed.find("#zoom-label").textContent, "100%");
     assert.equal(resumed.find("#viewport").scrollTop, 0);

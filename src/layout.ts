@@ -51,7 +51,6 @@ export function layout(
     ...history.links.map((l) => l.base),
   ]);
   const ordered = history.order.filter((s) => needed.has(s)).reverse();
-  const spacing = Math.max(18, view.layout.spacing);
   const width = Math.max(
     history.lanes.length > 1
       ? history.lanes.length * view.layout.laneWidth + 70
@@ -187,7 +186,6 @@ export function layout(
     if (label && lane !== undefined && previousOnLane.has(lane))
       nextY = Math.max(
         nextY,
-        previousOnLane.get(lane)!.y + spacing,
         previousOnLane.get(lane)!.bottom + view.layout.padding + 14,
       );
     for (const box of boxes) {
