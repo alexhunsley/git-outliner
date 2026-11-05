@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createFixture, fixtureGit as g } from "../scripts/fixture.ts";
 import { inspect, readHistory } from "../server/git.ts";
+import { rewriteMessages } from "../server/rewrite.ts";
 import { ViewStore } from "../server/store.ts";
 const bundle = buildSync({
   entryPoints: ["src/main.ts"],
@@ -39,6 +40,10 @@ async function browser(store) {
       const body = init.body ? JSON.parse(init.body) : undefined;
       let value;
       if (url === "/api/repository") value = await inspect(body.path);
+      else if (url === "/api/rewrite-preview")
+        value = {
+          message: (await rewriteMessages([body.message], body.rules))[0],
+        };
       else if (url === "/api/history")
         value = await readHistory(body.path, body.view);
       else if (url === "/api/views" && init.method === "POST")
@@ -187,6 +192,93 @@ test("DOM workflow: select lanes, toggle, save, reload, reconcile, import/export
   } finally {
     b?.dom.window.close();
     restarted?.dom.window.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("rewrite editor previews, validates, applies and persists rules with merge marker exports", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "outliner-rewrite-ui-")),
+    path = join(dir, "repo");
+  let b, reloaded;
+  const waitPreview = async (browser, pattern) => {
+    for (let i = 0; i < 400; i++) {
+      if (pattern.test(browser.find("#rewrite-output").textContent)) return;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error(
+      "Preview did not update: " + browser.find("#rewrite-output").textContent,
+    );
+  };
+  try {
+    await createFixture(path);
+    g(path, "switch", "-c", "rewrite-source");
+    g(path, "commit", "--allow-empty", "-m", "work");
+    g(path, "switch", "main");
+    g(
+      path,
+      "merge",
+      "--no-ff",
+      "rewrite-source",
+      "-m",
+      "Merged PR 2556: XYZ123 Fix a bug",
+    );
+    const store = new ViewStore(join(dir, "views"));
+    b = await browser(store);
+    b.input("#path", path);
+    await b.click('[data-action="open"]');
+    await b.click('[data-action="add-rewrite"]');
+    await waitPreview(b, /^XYZ123: Fix a bug$/);
+    b.input("#rewrite-pattern-0", "[");
+    await waitPreview(b, /Invalid rewrite/);
+    await b.click('[data-action="apply-rewrites"]');
+    assert.ok(b.w.document.querySelector(".error"));
+    b.input(
+      "#rewrite-pattern-0",
+      String.raw`^Merged PR \d+:\s+([A-Z]+\d+)\s+(.+)$`,
+    );
+    await waitPreview(b, /^XYZ123: Fix a bug$/);
+    await b.click('[data-action="apply-rewrites"]');
+    assert.ok(
+      [...b.w.document.querySelectorAll("#diagram text")].some(
+        (el) => el.textContent === "XYZ123: Fix a bug",
+      ),
+    );
+    assert.match(
+      b.find('#diagram [data-kind="merge"] title').textContent,
+      /Merge/,
+    );
+    await b.change("#display-mode", "all");
+    assert.equal(
+      b.find('#diagram [data-kind="merge"] circle').getAttribute("r"),
+      b.find('#diagram [data-kind="commit"] circle').getAttribute("r"),
+    );
+    assert.equal(
+      b.find('#diagram [data-kind="merge"] text[aria-label="Merge"]')
+        .textContent,
+      "M",
+    );
+    await b.click('[data-action="save"]');
+    const saved = (await store.list())[0];
+    assert.equal(saved.rewrites[0].replacement, "$1: $2");
+    await b.click('[data-action="svg"]');
+    const svg = await b.downloads.at(-1).text();
+    assert.match(svg, /XYZ123: Fix a bug/);
+    assert.match(svg, /aria-label="Merge">M/);
+    reloaded = await browser(store);
+    await reloaded.change("#saved", saved.id);
+    await reloaded.click('[data-action="load"]');
+    assert.equal(reloaded.find("#rewrite-replacement-0").value, "$1: $2");
+    assert.ok(
+      [...reloaded.w.document.querySelectorAll("#diagram text")].some(
+        (el) => el.textContent === "XYZ123: Fix a bug",
+      ),
+    );
+    await reloaded.click('[data-rule-remove="0"]');
+    await reloaded.click('[data-action="apply-rewrites"]');
+    assert.match(reloaded.find("#diagram").textContent, /Merged PR 2556/);
+  } finally {
+    b?.dom.window.close();
+    reloaded?.dom.window.close();
     await rm(dir, { recursive: true, force: true });
   }
 });

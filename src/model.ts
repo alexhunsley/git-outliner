@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { RewriteRulesSchema } from "./rewrite.ts";
 
 export const DEFAULT_PATTERN = String.raw`\b[A-Z][A-Z0-9]+-\d+\b`;
 const sha = z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/);
@@ -23,6 +24,7 @@ export const ViewSchema = z
         overrides: z.record(sha, z.boolean()),
       })
       .strict(),
+    rewrites: RewriteRulesSchema,
     tickets: z.object({ pattern: z.string().min(1).max(500) }).strict(),
     display: z
       .object({
@@ -64,6 +66,7 @@ export interface Commit {
   parents: string[];
   timestamp: number;
   subject: string;
+  label?: string;
   body: string;
   tickets: string[];
 }
@@ -124,6 +127,7 @@ export function newView(repository: Repository): TunedView {
     branches: [root],
     visibility: { default: "include", overrides: {} },
     tickets: { pattern: DEFAULT_PATTERN },
+    rewrites: [],
     display: { mode: "merges", patterns: "" },
     layout: { spacing: 92, laneWidth: 320, compact: false },
   };
@@ -159,4 +163,10 @@ export function candidates(
         bases.has(commit.sha)) &&
       matchesPatterns(commit, view.display.patterns),
   );
+}
+
+export function commitLabel(commit: Commit, view: TunedView): string {
+  return view.rewrites.length
+    ? (commit.label ?? commit.subject)
+    : commit.tickets.join(", ") || commit.subject || commit.sha.slice(0, 8);
 }

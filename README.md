@@ -40,6 +40,23 @@ The script creates `.demo/` and prints its absolute path. It refuses to overwrit
 6. Name and save the view. Create, duplicate, rename or delete views from the sidebar. JSON import creates a new unsaved view ID to avoid overwriting an existing saved view. Save it to retain it across restarts.
 7. Refresh/regenerate to reread Git. Export SVG also rereads Git before rendering. Export JSON contains current rules, including unsaved edits; it contains no history graph. Unsaved changes prompt before switching views or closing the tab.
 
+## Message rewrites and markers
+
+Under **Message rewrites**, add ordered regex rules with a **Match regex** and **Replace with** template. Parentheses capture text; `$1`, `$2`, etc. insert those captures. For example:
+
+```text
+Match:        ^Merged PR \d+:\s+([A-Z]+\d+)\s+(.+)$
+Replace with: $1: $2
+
+Merged PR 2556: XYZ123 Fix a bug → XYZ123: Fix a bug
+```
+
+The editable sample provides a live preview. Move rules up/down to change their order; each replaces its first match in the current subject, then passes the result to the next rule. Unmatched subjects stay unchanged. No slash delimiters or regex flags are needed. Invalid expressions display an error. **Apply rewrites** regenerates labels; **Save** also applies pending rule edits. JSON export includes pending rule edits. Rules persist with the tuned view and survive JSON import/export; older views default to no rules.
+
+Rewriting changes presentation only: the diagram, checklist and SVG use rewritten subjects, while hover details retain original messages. Diagram filtering, checklist search and ticket extraction use original Git data. Git commits are never edited. Rewrites execute in a worker with a two-second deadline, including previews.
+
+Every commit marker has the same circle size. A plain circle is an ordinary commit; an **M inside the circle** denotes a merge (two or more parents, including octopus merges). These remain vector shapes and text in SVG exports. Small ancestry junction dots are structural fork indicators.
+
 ## History, ownership and ancestry
 
 Extraction uses `git log --first-parent` with NUL-separated fields, retains all first-parent commits for ancestry, and selects commits with two or more parents as merge events (including octopus merges). Each event retains its SHA, parents, timestamp, full message and extracted tickets. The default regex is `\b[A-Z][A-Z0-9]+-\d+\b`; repeated tickets within one message are deduplicated. Different merge SHAs with the same ticket remain independent. Ticket-less merges use subject/SHA labels. Squash merges, rebased changes and cherry-picks with one parent are not classified as merges; they appear in All commits mode if on a selected first-parent segment.
@@ -74,11 +91,14 @@ Views are stored as individual JSON files under `~/.git-outliner/views/`. Overri
     default: "include" | "exclude",
     overrides: { "<full commit SHA>": true | false, ... }
   },
+  rewrites: [{ pattern: regex source, replacement: "$1: $2" }, ...],
   tickets: { pattern: JavaScript regex source (no slash delimiters or flags) },
   display: { mode: "merges" | "all", patterns: multiline literal text },
   layout: { spacing: integer 48..220, laneWidth: integer 240..600, compact: boolean }
 }
 ```
+
+`rewrites` defaults to an empty array, with a maximum of 20 rules (pattern up to 500 characters, replacement up to 2,000). Patterns must be valid JavaScript regular expressions.
 
 `display` defaults to `{ mode: "merges", patterns: "" }` when absent, so existing v1 saved views remain compatible. The filter intersects explicit visibility rules; it does not erase overrides or remove ancestry links.
 
@@ -115,6 +135,7 @@ Tests generate isolated repositories in the system temp directory and cover tick
 - `server/store.ts`: validated, atomic tuned-view persistence.
 - `server/index.ts`: loopback HTTP API and Vite/static hosting.
 - `src/model.ts`: v1 schema, ticket parser and visibility rules.
+- `src/rewrite.ts`, `server/rewrite.ts`: ordered capture replacements and bounded worker execution.
 - `src/layout.ts`: deterministic layout model and standalone SVG rendering.
 - `src/main.ts`, `src/style.css`: native DOM interface and styling.
 - `scripts/fixture.ts`, `scripts/demo.ts`: reproducible demo repository generator.

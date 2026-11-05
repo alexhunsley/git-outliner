@@ -6,6 +6,9 @@ import { fileURLToPath } from "node:url";
 import { ViewSchema } from "../src/model.ts";
 import { inspect, readHistory } from "./git.ts";
 import { ViewStore } from "./store.ts";
+import { z } from "zod";
+import { RewriteRulesSchema } from "../src/rewrite.ts";
+import { rewriteMessages } from "./rewrite.ts";
 const app = express();
 const store = new ViewStore();
 app.disable("x-powered-by");
@@ -32,6 +35,14 @@ app.post("/api/repository", async (req, res) => {
 });
 app.post("/api/history", async (req, res) => {
   res.json(await readHistory(req.body.path, ViewSchema.parse(req.body.view)));
+});
+app.post("/api/rewrite-preview", async (req, res) => {
+  const input = z
+    .object({ message: z.string().max(10000), rules: RewriteRulesSchema })
+    .strict()
+    .parse(req.body);
+  const [message] = await rewriteMessages([input.message], input.rules);
+  res.json({ message });
 });
 app.get("/api/views", async (_req, res) => {
   res.json(await store.list());

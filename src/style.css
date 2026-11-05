@@ -432,3 +432,18 @@ textarea:focus {
   outline: 2px solid #3c9b89;
   outline-offset: 2px;
 }
+
+.rewrite-rule {
+  border-bottom: 1px solid #dce1d8;
+  padding-bottom: 8px;
+}
+#rewrite-output {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 10px;
+  background: #edf2e9;
+  border-radius: 4px;
+  min-height: 38px;
+  font-size: 12px;
+}

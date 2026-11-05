@@ -1,6 +1,7 @@
 import "./style.css";
 import {
   candidates,
+  commitLabel,
   newView,
   ViewSchema,
   visible,
@@ -9,6 +10,7 @@ import {
   type History,
   type TunedView,
 } from "./model.ts";
+import { RewriteRulesSchema, type RewriteRule } from "./rewrite.ts";
 import { renderSvg } from "./layout.ts";
 const app = document.querySelector<HTMLDivElement>("#root")!;
 let repo: Repository | undefined,
@@ -51,6 +53,69 @@ function download(name: string, content: string, type: string) {
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+let draftViewId = "",
+  rewriteDraft: RewriteRule[] = [],
+  rewritePending = false;
+let rewriteSample = "Merged PR 2556: XYZ123 Fix a bug",
+  previewOutput = rewriteSample,
+  previewError = "";
+let previewSequence = 0,
+  previewTimer: ReturnType<typeof setTimeout> | undefined;
+function rewritePanel() {
+  if (!view) return "";
+  if (draftViewId !== view.id) {
+    draftViewId = view.id;
+    rewriteDraft = structuredClone(view.rewrites);
+    rewritePending = false;
+    previewError = "";
+    previewOutput = rewriteSample;
+    ++previewSequence;
+    if (rewriteDraft.length) schedulePreview();
+  }
+  return `<section><div class="eyebrow">04 / MESSAGE REWRITES</div><p class="hint">Rules run top to bottom on the subject. Parentheses capture text; $1, $2 insert it. First match per rule; unmatched messages stay unchanged. Filtering uses original messages.</p>
+  ${rewriteDraft.map((rule, i) => `<div class="rewrite-rule"><label for="rewrite-pattern-${i}">Match regex · rule ${i + 1}</label><input id="rewrite-pattern-${i}" data-rule-pattern="${i}" value="${esc(rule.pattern)}" maxlength="500" spellcheck="false"><label for="rewrite-replacement-${i}">Replace with</label><input id="rewrite-replacement-${i}" data-rule-replacement="${i}" value="${esc(rule.replacement)}" maxlength="2000" spellcheck="false"><div class="row"><button data-rule-up="${i}" ${i === 0 ? "disabled" : ""}>↑ Move up</button><button data-rule-down="${i}" ${i === rewriteDraft.length - 1 ? "disabled" : ""}>↓ Move down</button><button data-rule-remove="${i}">Remove</button></div></div>`).join("")}
+  <div class="row"><button data-action="add-rewrite" ${rewriteDraft.length >= 20 ? "disabled" : ""}>Add rule</button><button data-action="apply-rewrites">Apply rewrites</button></div><label for="rewrite-sample">Live preview · original subject</label><textarea id="rewrite-sample" maxlength="10000" rows="3">${esc(rewriteSample)}</textarea><label for="rewrite-output">Rewritten label</label><output id="rewrite-output" aria-live="polite" class="${previewError ? "error" : ""}">${esc(previewError || previewOutput)}</output></section>`;
+}
+function schedulePreview() {
+  const sequence = ++previewSequence;
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(async () => {
+    const render = () => {
+      const el = document.querySelector("#rewrite-output");
+      if (el) {
+        el.textContent = previewError || previewOutput;
+        el.classList.toggle("error", !!previewError);
+      }
+    };
+    previewError = "";
+    const rules = RewriteRulesSchema.safeParse(rewriteDraft);
+    if (!rules.success) {
+      previewError = rules.error.issues[0].message;
+      render();
+      return;
+    }
+    previewOutput = "Previewing…";
+    render();
+    try {
+      const result = await api<{ message: string }>("/api/rewrite-preview", {
+        message: rewriteSample,
+        rules: rules.data,
+      });
+      if (sequence !== previewSequence) return;
+      previewOutput = result.message;
+    } catch (e) {
+      if (sequence !== previewSequence) return;
+      previewError = e instanceof Error ? e.message : String(e);
+    }
+    render();
+  }, 200);
+}
+async function applyRewrites() {
+  view!.rewrites = RewriteRulesSchema.parse(rewriteDraft);
+  touch();
+  await refresh();
+  rewritePending = false;
 }
 function discard() {
   return !dirty || confirm("Discard unsaved view changes?");
@@ -99,6 +164,7 @@ function draw() {
           )
           .join("")}</div></section>
   <section><div class="eyebrow">03 / COMMITS & MERGES</div><label for="display-mode">Show</label><select id="display-mode"><option value="merges" ${view.display.mode === "merges" ? "selected" : ""}>Merges & branching points only</option><option value="all" ${view.display.mode === "all" ? "selected" : ""}>All commits</option></select><label for="filter-patterns">Filter diagram by text</label><textarea id="filter-patterns" rows="4" maxlength="10000" placeholder="CTR-123&#10;fix login">${esc(view.display.patterns)}</textarea><p class="hint">One literal pattern per line. Matches any line, ignoring case, in the message, tickets or SHA. Blank shows all. Branch connections remain for context.</p><button data-action="filter">Apply filter</button><label class="sr" for="search">Search checklist</label><input id="search" type="search" placeholder="Search tickets, subjects, SHA…" value="${esc(query)}"><div class="row"><button data-action="all">All</button><button data-action="none">None</button><button data-action="defaults">Reset overrides</button></div><p class="hint">Controls apply to all discovered events, in this display mode and text filter, including those hidden by checklist search.</p><div id="events">${eventList()}</div></section>
+  ${rewritePanel()}
   <section><details><summary>Parsing & presentation</summary><label for="pattern">Ticket regex</label><input id="pattern" value="${esc(view.tickets.pattern)}"><button data-action="pattern">Apply regex</button><label for="policy">New commits / merges default to</label><select id="policy"><option value="include" ${view.visibility.default === "include" ? "selected" : ""}>Included</option><option value="exclude" ${view.visibility.default === "exclude" ? "selected" : ""}>Excluded</option></select><label for="spacing">Event spacing</label><input id="spacing" type="range" min="72" max="220" step="1" value="${view.layout.spacing}"><label for="width">Lane width</label><input id="width" type="range" min="240" max="600" step="10" value="${view.layout.laneWidth}"><label class="check"><input id="compact" type="checkbox" ${view.layout.compact ? "checked" : ""}>Compact labels</label></details></section>`
       : ""
   }</fieldset></aside>
@@ -131,7 +197,7 @@ function eventList() {
           .toLowerCase()
           .includes(query.toLowerCase()),
       );
-      return `<details open class="event-group"><summary>${esc(label(l.ref))} <span class="muted">${events.length}</span></summary><div class="row"><button data-group="${esc(l.ref)}" data-set="true">All</button><button data-group="${esc(l.ref)}" data-set="false">None</button></div>${events.length ? events.map((c) => `<div class="event"><label class="check"><input type="checkbox" data-event="${c.sha}" ${visible(view!, c.sha) ? "checked" : ""}><span><strong>${esc(c.tickets.join(", ") || c.subject || c.sha.slice(0, 8))}</strong><span class="event-subject" title="${esc(c.body)}">${esc(c.subject)}</span><small>${new Date(c.timestamp * 1000).toISOString().slice(0, 10)} · ${c.sha.slice(0, 8)}</small></span></label>${c.sha in view!.visibility.overrides ? `<button class="reset" data-reset="${c.sha}" title="Use default visibility">Reset to default</button>` : ""}</div>`).join("") : '<p class="hint">No matching events in this branch segment.</p>'}</details>`;
+      return `<details open class="event-group"><summary>${esc(label(l.ref))} <span class="muted">${events.length}</span></summary><div class="row"><button data-group="${esc(l.ref)}" data-set="true">All</button><button data-group="${esc(l.ref)}" data-set="false">None</button></div>${events.length ? events.map((c) => `<div class="event"><label class="check"><input type="checkbox" data-event="${c.sha}" ${visible(view!, c.sha) ? "checked" : ""}><span><strong>${esc(commitLabel(c, view!))}</strong><span class="event-subject" title="${esc(c.body)}">${esc(view!.rewrites.length ? "" : c.subject)}</span><small>${new Date(c.timestamp * 1000).toISOString().slice(0, 10)} · ${c.sha.slice(0, 8)}</small></span></label>${c.sha in view!.visibility.overrides ? `<button class="reset" data-reset="${c.sha}" title="Use default visibility">Reset to default</button>` : ""}</div>`).join("") : '<p class="hint">No matching events in this branch segment.</p>'}</details>`;
     })
     .join("");
 }
@@ -224,7 +290,32 @@ app.addEventListener("click", (event) => {
       });
     return;
   }
+  for (const key of ["ruleUp", "ruleDown", "ruleRemove"] as const) {
+    if (d[key] === undefined) continue;
+    const i = Number(d[key]);
+    if (key === "ruleRemove") rewriteDraft.splice(i, 1);
+    else {
+      const j = i + (key === "ruleUp" ? -1 : 1);
+      [rewriteDraft[i], rewriteDraft[j]] = [rewriteDraft[j], rewriteDraft[i]];
+    }
+    rewritePending = true;
+    touch();
+    draw();
+    schedulePreview();
+    return;
+  }
   const action = d.action;
+  if (action === "add-rewrite") {
+    rewriteDraft.push({
+      pattern: String.raw`^Merged PR \d+:\s+([A-Z]+\d+)\s+(.+)$`,
+      replacement: "$1: $2",
+    });
+    rewritePending = true;
+    touch();
+    draw();
+    schedulePreview();
+  }
+  if (action === "apply-rewrites") void run(applyRewrites);
   if (action === "filter" && view) {
     const patterns = (
       document.querySelector("#filter-patterns") as HTMLTextAreaElement
@@ -251,6 +342,7 @@ app.addEventListener("click", (event) => {
     if (selected && discard())
       void run(async () => {
         history = undefined;
+        draftViewId = "";
         const next = await api<Repository>("/api/repository", {
           path:
             repo && sameRepository(selected.repository, repo.identity)
@@ -271,6 +363,7 @@ app.addEventListener("click", (event) => {
     });
   if (action === "save" && view)
     void run(async () => {
+      if (rewritePending) await applyRewrites();
       await api("/api/views", ViewSchema.parse(view));
       saved = await api("/api/views");
       dirty = false;
@@ -278,6 +371,7 @@ app.addEventListener("click", (event) => {
     });
   if (action === "duplicate" && view)
     void run(async () => {
+      if (rewritePending) await applyRewrites();
       view = {
         ...structuredClone(view!),
         id: crypto.randomUUID(),
@@ -307,7 +401,16 @@ app.addEventListener("click", (event) => {
     try {
       download(
         `${view.name}.json`,
-        JSON.stringify(ViewSchema.parse(view), null, 2),
+        JSON.stringify(
+          ViewSchema.parse({
+            ...view,
+            rewrites: rewritePending
+              ? RewriteRulesSchema.parse(rewriteDraft)
+              : view.rewrites,
+          }),
+          null,
+          2,
+        ),
         "application/json",
       );
     } catch (e) {
@@ -433,6 +536,24 @@ app.addEventListener("change", (event) => {
 });
 app.addEventListener("input", (event) => {
   const input = event.target as HTMLInputElement;
+  if (
+    input.dataset.rulePattern !== undefined ||
+    input.dataset.ruleReplacement !== undefined
+  ) {
+    const i = Number(
+      input.dataset.rulePattern ?? input.dataset.ruleReplacement,
+    );
+    if (input.dataset.rulePattern !== undefined)
+      rewriteDraft[i].pattern = input.value;
+    else rewriteDraft[i].replacement = input.value;
+    rewritePending = true;
+    touch();
+    schedulePreview();
+  }
+  if (input.id === "rewrite-sample") {
+    rewriteSample = input.value;
+    schedulePreview();
+  }
   if (input.id === "name" && view) {
     view.name = input.value;
     touch();

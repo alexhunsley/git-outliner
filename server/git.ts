@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { Worker } from "node:worker_threads";
 import { sameRepository } from "../src/model.ts";
 import type { Commit, Repository, TunedView, History } from "../src/model.ts";
+import { rewriteMessages } from "./rewrite.ts";
 const exec = promisify(execFile);
 export async function git(path: string, args: string[]): Promise<string> {
   try {
@@ -225,6 +226,13 @@ export async function readHistory(
     });
   const events = result.lanes.flatMap((l) => l.commits);
   await tickets(events, view.tickets.pattern);
+  const labels = await rewriteMessages(
+    events.map((commit) => commit.subject),
+    view.rewrites,
+  );
+  events.forEach((commit, i) => {
+    commit.label = labels[i];
+  });
   const relevant = new Set(
     [...histories.values()].flatMap((h) => h.map((c) => c.sha)),
   );
