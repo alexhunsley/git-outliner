@@ -229,7 +229,7 @@ test("imported narrow spacing remains collision-free and hidden events retain to
     const d = layout(h, f.view);
     const ordered = [...d.events].sort((a, b) => a.y - b.y);
     assert.ok(
-      ordered.slice(1).every((event, i) => event.y - ordered[i].y >= 72),
+      ordered.slice(1).every((event, i) => event.y - ordered[i].y >= 18),
     );
     assert.ok(
       d.lanes.every((lane) =>

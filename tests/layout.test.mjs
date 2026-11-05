@@ -183,10 +183,93 @@ test("labels borrow past ended lanes, stop before active lanes and leave fork co
   assert.ok(older.y - 14 > d.lanes[1].end);
   const narrow = layout(history, view, measure, 300);
   assert.ok(narrow.width >= 2 * view.layout.laneWidth + 70);
-  const events = [...d.events].sort((a, b) => a.y - b.y);
-  assert.ok(
-    events
-      .slice(1)
-      .every((e, i) => e.y - 14 > events[i].y - 14 + events[i].height),
+  assertNoCollisions(d);
+});
+
+function assertNoCollisions(diagram) {
+  const events = [...diagram.events].sort((a, b) => a.y - b.y);
+  for (let i = 0; i < events.length; i++) {
+    const a = events[i];
+    if (i) assert.ok(a.y - events[i - 1].y >= 18);
+    for (const b of events.slice(i + 1)) {
+      const horizontal =
+        a.x - 8 < b.x + 14 + b.width && b.x - 8 < a.x + 14 + a.width;
+      if (horizontal) assert.ok(a.y - 14 + a.height + 8 <= b.y - 14);
+    }
+    for (const link of diagram.links) {
+      if (link.base === a.commit.sha) continue;
+      const left = Math.min(link.x1, link.x2) - 8,
+        right = Math.max(
+          link.x1 + 8,
+          link.x2 + 18 + measure(`inferred · ${link.base.slice(0, 7)}`, 10),
+        );
+      if (a.x - 8 < right && left < a.x + 14 + a.width)
+        assert.ok(
+          a.y - 14 >= link.y1 + 16 || a.y - 14 + a.height + 8 <= link.y1 - 40,
+        );
+    }
+  }
+}
+test("interleaved lane labels share vertical space while circles keep strict newest-first order", () => {
+  const { view, history } = widthFixture();
+  const newer = history.lanes[1].commits[0],
+    next = history.lanes[0].commits[2];
+  const d = layout(history, view, measure, 1000);
+  const a = d.events.find((e) => e.commit.sha === newer.sha),
+    b = d.events.find((e) => e.commit.sha === next.sha);
+  assert.equal(b.y - a.y, 18);
+  assert.ok(a.y - 14 + a.height > b.y - 14);
+  assertNoCollisions(d);
+  const expected = history.order.slice().reverse();
+  assert.deepEqual(
+    [...d.events].sort((a, b) => a.y - b.y).map((e) => e.commit.sha),
+    expected,
   );
+  assert.equal(
+    renderSvg(history, view, measure, 1000),
+    renderSvg(history, view, measure, 1000),
+  );
+});
+test("lane spacing applies within a lane, and nested forks and filtered bases remain collision-free", () => {
+  const { view, history, hashes } = widthFixture();
+  view.layout.spacing = 180;
+  history.lanes.forEach((l) =>
+    l.commits.forEach((c) => (c.subject = "Short subject")),
+  );
+  for (const compact of [false, true]) {
+    view.layout.compact = compact;
+    let d = layout(history, view, measure, 1000);
+    assertNoCollisions(d);
+    for (const lane of d.lanes) {
+      const events = d.events
+        .filter((e) => e.x === lane.x)
+        .sort((a, b) => a.y - b.y);
+      assert.ok(events.slice(1).every((e, i) => e.y - events[i].y >= 180));
+    }
+    view.visibility.overrides[hashes[1]] = false;
+    d = layout(history, view, measure, 1000);
+    assertNoCollisions(d);
+    assert.equal(d.links.length, 1);
+    delete view.visibility.overrides[hashes[1]];
+  }
+  // Add a selected child of the existing descendant and an independent marker.
+  const nestedSha = "5".repeat(40),
+    child = history.lanes[1];
+  const commit = { ...child.commits[0], sha: nestedSha, parents: [hashes[3]] };
+  history.lanes.push({
+    ref: "refs/heads/nested",
+    commits: [commit],
+    events: [],
+  });
+  view.branches.push("refs/heads/nested");
+  history.order.push(nestedSha);
+  history.links.push({
+    parent: child.ref,
+    branch: "refs/heads/nested",
+    base: hashes[3],
+    inferred: true,
+  });
+  const d = layout(history, view, measure, 1100);
+  assertNoCollisions(d);
+  assert.equal(d.links.length, 2);
 });
