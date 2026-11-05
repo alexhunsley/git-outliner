@@ -496,6 +496,16 @@ test("closest shared branching point yields A to B to C after both descendants a
     g(f.path, "commit", "--allow-empty", "-m", "B advances after C fork");
     f.view.root = "refs/heads/A";
     f.view.branches = ["refs/heads/A", "refs/heads/C", "refs/heads/B"];
+    const unknown = await readHistory(f.path, f.view);
+    assert.equal(unknown.links.length, 0);
+    assert.equal(unknown.lanes.length, 3);
+    assert.ok(
+      unknown.warnings.some((w) => w.message.includes("Ambiguous lineage")),
+    );
+    f.view.branchParents = {
+      "refs/heads/B": "refs/heads/A",
+      "refs/heads/C": "refs/heads/B",
+    };
     const h = await readHistory(f.path, f.view);
     assert.deepEqual(
       h.links.map((l) => [l.parent, l.branch]),
@@ -509,7 +519,7 @@ test("closest shared branching point yields A to B to C after both descendants a
     const reordered = await readHistory(f.path, f.view);
     assert.deepEqual(reordered.links, h.links);
     assert.deepEqual(reordered.lanes, h.lanes);
-    assert.ok(h.warnings.some((w) => w.message.includes("Ambiguous lineage")));
+    assert.ok(!h.warnings.some((w) => w.message.includes("Ambiguous lineage")));
     const old = structuredClone(f.view);
     old.branchParents["refs/heads/C"] = "refs/heads/A";
     assert.equal(

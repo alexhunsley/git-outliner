@@ -18,8 +18,17 @@ export function deriveHierarchy(
   const precedes = (parent: string, child: string) =>
     sets.get(child)!.has(histories.get(parent)![0].sha) &&
     !sets.get(parent)!.has(histories.get(child)![0].sha);
+  const explicitDescendant = (child: string, ancestor: string) => {
+    const seen = new Set<string>();
+    while (view.branchParents[child] && !seen.has(child)) {
+      seen.add(child);
+      child = view.branchParents[child];
+      if (child === ancestor) return true;
+    }
+    return false;
+  };
   const parents = new Map<string, string>();
-  const flexible = new Set<string>();
+  const ambiguousRefs = new Set<string>();
   const fail = (ref: string, message: string) => {
     if (!unresolved.includes(ref)) {
       unresolved.push(ref);
@@ -64,22 +73,23 @@ export function deriveHierarchy(
     if (nearest.length === 1) parents.set(ref, nearest[0]);
     else {
       parents.set(ref, view.root);
-      flexible.add(ref);
       const ambiguous =
         nearest.length > 1 ||
         refs.some(
           (other) =>
             other !== ref &&
+            !explicitDescendant(other, ref) &&
             !precedes(ref, other) &&
             !precedes(other, ref) &&
             common(ref, other)?.sha !== common(ref, view.root)?.sha,
         );
-      if (ambiguous)
-        warnings.push({
-          kind: "ancestry",
+      if (ambiguous) {
+        ambiguousRefs.add(ref);
+        fail(
           ref,
-          message: `Ambiguous lineage for ${ref}: shared commits do not establish branch direction. The visual hierarchy uses closest shared history; named-branch direction is inferred. Choose an explicit parent if known.`,
-        });
+          `Ambiguous lineage for ${ref}: Git does not establish which named branch is the parent. Its lane is shown without a branch connection. Choose Parent of ${ref} explicitly.`,
+        );
+      }
     }
   }
   if (view.branchParents[view.root])
@@ -103,29 +113,7 @@ export function deriveHierarchy(
       return false;
     }
     visiting.add(ref);
-    let parent = parents.get(ref);
-    if (flexible.has(ref)) {
-      const commits = histories.get(ref)!;
-      let nearest = commits.findIndex(
-        (commit) => commit.sha === common(ref, view.root)!.sha,
-      );
-      for (const candidate of ordered) {
-        if (
-          candidate === view.root ||
-          candidate === ref ||
-          precedes(ref, candidate)
-        )
-          continue;
-        const base = common(ref, candidate);
-        if (!base) continue;
-        const distance = commits.findIndex((commit) => commit.sha === base.sha);
-        if (distance < nearest) {
-          nearest = distance;
-          parent = candidate;
-        }
-      }
-      parents.set(ref, parent!);
-    }
+    const parent = parents.get(ref);
     const ok = !!parent && visit(parent);
     visiting.delete(ref);
     done.add(ref);
@@ -146,17 +134,10 @@ export function deriveHierarchy(
     });
     return true;
   };
-  // Rootward shared-history depth picks a stable visual spine, not a claim
-  // about historical named-branch creation. Dependencies still visit parent first.
-  const rootDistance = (ref: string) =>
-    histories
-      .get(ref)!
-      .findIndex((commit) => commit.sha === common(ref, view.root)?.sha);
-  [...refs]
-    .sort(
-      (a, b) =>
-        rootDistance(a) - rootDistance(b) || (a < b ? -1 : a > b ? 1 : 0),
-    )
-    .forEach(visit);
+  refs.forEach(visit);
+  // Keep selected ambiguous lanes visible without inventing a directed relationship.
+  refs
+    .filter((ref) => ambiguousRefs.has(ref))
+    .forEach((ref) => ordered.push(ref));
   return { ordered, links, warnings, unresolved };
 }

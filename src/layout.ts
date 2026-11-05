@@ -220,7 +220,8 @@ export function layout(
     x: 64 + i * view.layout.laneWidth,
     start,
     end:
-      l.ref === view.root
+      l.ref === view.root ||
+      !history.links.some((link) => link.branch === l.ref)
         ? height - 32
         : Math.max(
             start,
