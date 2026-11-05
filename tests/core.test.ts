@@ -484,3 +484,41 @@ test("hierarchy and shared ownership are independent of selection order and comm
     await rm(f.dir, { recursive: true, force: true });
   }
 });
+
+test("closest shared branching point yields A to B to C after both descendants advance", async () => {
+  const f = await setup();
+  try {
+    // Rename the fixture's nested chain and advance its intermediate branch.
+    g(f.path, "branch", "-m", "main", "A");
+    g(f.path, "branch", "-m", "staging", "B");
+    g(f.path, "branch", "-m", "release/1.0", "C");
+    g(f.path, "switch", "B");
+    g(f.path, "commit", "--allow-empty", "-m", "B advances after C fork");
+    f.view.root = "refs/heads/A";
+    f.view.branches = ["refs/heads/A", "refs/heads/C", "refs/heads/B"];
+    const h = await readHistory(f.path, f.view);
+    assert.deepEqual(
+      h.links.map((l) => [l.parent, l.branch]),
+      [
+        ["refs/heads/A", "refs/heads/B"],
+        ["refs/heads/B", "refs/heads/C"],
+      ],
+    );
+    assert.equal(h.links[1].base, f.commits.staging);
+    f.view.branches = ["refs/heads/B", "refs/heads/A", "refs/heads/C"];
+    const reordered = await readHistory(f.path, f.view);
+    assert.deepEqual(reordered.links, h.links);
+    assert.deepEqual(reordered.lanes, h.lanes);
+    assert.ok(h.warnings.some((w) => w.message.includes("Ambiguous lineage")));
+    const old = structuredClone(f.view);
+    old.branchParents["refs/heads/C"] = "refs/heads/A";
+    assert.equal(
+      (await readHistory(f.path, old)).links.find(
+        (l) => l.branch === "refs/heads/C",
+      )!.parent,
+      "refs/heads/A",
+    );
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
