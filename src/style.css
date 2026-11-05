@@ -447,3 +447,7 @@ textarea:focus {
   min-height: 38px;
   font-size: 12px;
 }
+/* Keep zoom-induced scrollbars from changing the width used for text wrapping. */
+#viewport {
+  scrollbar-gutter: stable;
+}

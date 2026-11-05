@@ -96,3 +96,97 @@ test("labels and headings grow without collisions; full and compact SVG retain o
     );
   }
 });
+
+function widthFixture() {
+  const hashes = ["1", "2", "3", "4"].map((c) => c.repeat(40));
+  const repository = {
+    path: "/repo",
+    identity: {
+      roots: [hashes[0]],
+      fingerprint: "a".repeat(64),
+      pathHint: "/repo",
+    },
+    branches: [
+      { ref: "refs/heads/main", sha: hashes[2] },
+      { ref: "refs/heads/child", sha: hashes[3] },
+    ],
+  };
+  const view = newView(repository);
+  view.branches = repository.branches.map((b) => b.ref);
+  view.display.mode = "all";
+  view.layout.laneWidth = 240;
+  const commits = hashes.map((sha, i) => ({
+    sha,
+    parents: i ? [hashes[i - 1]] : [],
+    timestamp: i,
+    subject:
+      "A full label that uses free horizontal space rather than wrapping needlessly ".repeat(
+        3,
+      ),
+    body: "body",
+    tickets: [],
+  }));
+  const history = {
+    repository,
+    lanes: [
+      { ref: view.root, events: [], commits: commits.slice(0, 3) },
+      { ref: view.branches[1], events: [], commits: [commits[3]] },
+    ],
+    order: hashes,
+    links: [
+      {
+        parent: view.root,
+        branch: view.branches[1],
+        base: hashes[1],
+        inferred: true,
+      },
+    ],
+    warnings: [],
+    unresolved: [],
+  };
+  return { view, history, hashes };
+}
+test("single lane uses available width and rewraps completely when narrowed", () => {
+  const { view, history } = widthFixture();
+  history.lanes = history.lanes.slice(0, 1);
+  history.links = [];
+  view.branches = [view.root];
+  const narrow = layout(history, view, measure, 350),
+    wide = layout(history, view, measure, 1000);
+  assert.equal(wide.width, 1000);
+  assert.equal(narrow.width, 350);
+  assert.ok(wide.events[0].width > narrow.events[0].width);
+  assert.ok(wide.events[0].lines.length < narrow.events[0].lines.length);
+  assert.ok(wide.height < narrow.height);
+  for (const diagram of [narrow, wide])
+    for (const event of diagram.events)
+      assert.ok(event.x + 14 + event.width <= diagram.width - 24);
+  const svg = renderSvg(history, view, measure, 1000);
+  assert.equal(
+    new JSDOM(svg, {
+      contentType: "image/svg+xml",
+    }).window.document.documentElement.getAttribute("width"),
+    "1000",
+  );
+});
+test("labels borrow past ended lanes, stop before active lanes and leave fork connections clear", () => {
+  const { view, history, hashes } = widthFixture();
+  const d = layout(history, view, measure, 1000);
+  const older = d.events.find((e) => e.commit.sha === hashes[0]),
+    newer = d.events.find((e) => e.commit.sha === hashes[2]),
+    fork = d.events.find((e) => e.commit.sha === hashes[1]),
+    child = d.events.find((e) => e.commit.sha === hashes[3]);
+  assert.ok(older.width > newer.width);
+  assert.ok(newer.x + 14 + newer.width <= d.lanes[1].x - 24);
+  assert.ok(fork.x + 14 + fork.width <= d.lanes[1].x - 24);
+  assert.equal(child.x + 14 + child.width, d.width - 24);
+  assert.ok(older.y - 14 > d.lanes[1].end);
+  const narrow = layout(history, view, measure, 300);
+  assert.ok(narrow.width >= 2 * view.layout.laneWidth + 70);
+  const events = [...d.events].sort((a, b) => a.y - b.y);
+  assert.ok(
+    events
+      .slice(1)
+      .every((e, i) => e.y - 14 > events[i].y - 14 + events[i].height),
+  );
+});

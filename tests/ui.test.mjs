@@ -456,3 +456,60 @@ test("broken or unavailable browser storage leaves the app usable and warns visi
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("window resize rewraps a single lane while zoom and SVG export retain layout width", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "outliner-width-ui-")),
+    path = join(dir, "repo");
+  let b;
+  try {
+    await createFixture(path);
+    b = await browser(new ViewStore(join(dir, "views")));
+    const canvasStyle = b.w.document.createElement("style");
+    canvasStyle.textContent = "#viewport { padding: 24px; }";
+    b.w.document.head.appendChild(canvasStyle);
+    let viewportWidth = 1000;
+    Object.defineProperty(b.w.HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get() {
+        return this.id === "viewport" ? viewportWidth : 0;
+      },
+    });
+    const waitWidth = async (expected) => {
+      for (let i = 0; i < 400; i++) {
+        const svg = b.w.document.querySelector("#diagram svg");
+        if (svg?.getAttribute("width") === String(expected)) return;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      throw new Error("Reflow failed");
+    };
+    b.input("#path", path);
+    await b.click('[data-action="open"]');
+    await waitWidth(952);
+    const svgBefore = b.find("#diagram svg").outerHTML;
+    await b.click('[data-action="plus"]');
+    assert.equal(b.find("#diagram svg").outerHTML, svgBefore);
+    viewportWidth = 600;
+    b.w.dispatchEvent(new b.w.Event("resize"));
+    await waitWidth(552);
+    assert.equal(b.find("#zoom-label").textContent, "120%");
+    const screen = new JSDOM(b.find("#diagram svg").outerHTML, {
+      contentType: "image/svg+xml",
+    }).window.document;
+    await b.click('[data-action="svg"]');
+    const exported = new JSDOM(await b.downloads.at(-1).text(), {
+      contentType: "image/svg+xml",
+    }).window.document;
+    assert.equal(exported.documentElement.getAttribute("width"), "552");
+    assert.deepEqual(
+      [...exported.querySelectorAll("[data-event] tspan")].map(
+        (n) => n.textContent,
+      ),
+      [...screen.querySelectorAll("[data-event] tspan")].map(
+        (n) => n.textContent,
+      ),
+    );
+  } finally {
+    b?.dom.window.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
