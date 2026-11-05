@@ -17,7 +17,11 @@ import {
   writeSettings,
   type Settings,
 } from "./session.ts";
-import { renderSvg } from "./layout.ts";
+import { renderSvg as renderMeasuredSvg } from "./layout.ts";
+import { browserMeasure } from "./text.ts";
+const measureText = browserMeasure();
+const renderSvg = (history: History, view: TunedView) =>
+  renderMeasuredSvg(history, view, measureText);
 const app = document.querySelector<HTMLDivElement>("#root")!;
 let repo: Repository | undefined,
   view: TunedView | undefined,
@@ -307,7 +311,7 @@ function eventList() {
           .toLowerCase()
           .includes(query.toLowerCase()),
       );
-      return `<details open class="event-group" data-panel="${esc(l.ref)}"><summary>${esc(label(l.ref))} <span class="muted">${events.length}</span></summary><div class="row"><button data-group="${esc(l.ref)}" data-set="true">All</button><button data-group="${esc(l.ref)}" data-set="false">None</button></div>${events.length ? events.map((c) => `<div class="event"><label class="check"><input type="checkbox" data-event="${c.sha}" ${visible(view!, c.sha) ? "checked" : ""}><span><strong>${esc(commitLabel(c, view!))}</strong><span class="event-subject" title="${esc(c.body)}">${esc(view!.rewrites.length ? "" : c.subject)}</span><small>${new Date(c.timestamp * 1000).toISOString().slice(0, 10)} · ${c.sha.slice(0, 8)}</small></span></label>${c.sha in view!.visibility.overrides ? `<button class="reset" data-reset="${c.sha}" title="Use default visibility">Reset to default</button>` : ""}</div>`).join("") : '<p class="hint">No matching events in this branch segment.</p>'}</details>`;
+      return `<details open class="event-group" data-panel="${esc(l.ref)}"><summary>${esc(label(l.ref))} <span class="muted">${events.length}</span></summary><div class="row"><button data-group="${esc(l.ref)}" data-set="true">All</button><button data-group="${esc(l.ref)}" data-set="false">None</button></div>${events.length ? events.map((c) => `<div class="event"><label class="check"><input type="checkbox" data-event="${c.sha}" ${visible(view!, c.sha) ? "checked" : ""}><span><strong title="${esc(c.body)}">${esc(commitLabel(c, view!))}</strong><small>${new Date(c.timestamp * 1000).toISOString().slice(0, 10)} · ${c.sha.slice(0, 8)}</small></span></label>${c.sha in view!.visibility.overrides ? `<button class="reset" data-reset="${c.sha}" title="Use default visibility">Reset to default</button>` : ""}</div>`).join("") : '<p class="hint">No matching events in this branch segment.</p>'}</details>`;
     })
     .join("");
 }

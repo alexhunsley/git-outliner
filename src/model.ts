@@ -166,7 +166,9 @@ export function candidates(
 }
 
 export function commitLabel(commit: Commit, view: TunedView): string {
-  return view.rewrites.length
-    ? (commit.label ?? commit.subject)
-    : commit.tickets.join(", ") || commit.subject || commit.sha.slice(0, 8);
+  return (
+    (view.rewrites.length
+      ? (commit.label ?? commit.subject)
+      : commit.subject) || commit.sha.slice(0, 8)
+  );
 }
