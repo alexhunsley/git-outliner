@@ -38,7 +38,19 @@ The script creates `.demo/` and prints its absolute path. It refuses to overwrit
 4. Search the branch-grouped merge checklist by ticket, SHA or message. Check/uncheck individual merges, use global or branch all/none, or reset overrides. Search filters the checklist only; bulk actions cover candidates in the current display mode and diagram filter, including those hidden by checklist search.
 5. Adjust ticket regex, default visibility, event spacing, lane width and compact labels. Drag to pan, scroll to explore, zoom or fit the diagram. Hover SVG labels for full commit messages and SHAs. Text is elided to fit lanes; compact mode uses one label line.
 6. Name and save the view. Create, duplicate, rename or delete views from the sidebar. JSON import creates a new unsaved view ID to avoid overwriting an existing saved view. Save it to retain it across restarts.
-7. Refresh/regenerate to reread Git. Export SVG also rereads Git before rendering. Export JSON contains current rules, including unsaved edits; it contains no history graph. Unsaved changes prompt before switching views or closing the tab.
+7. Refresh/regenerate to reread Git. Export SVG also rereads Git before rendering. Export JSON contains current rules, including unsaved edits; it contains no history graph. Unsaved changes prompt before switching views; closing the tab retains them in browser storage.
+
+## Automatic browser settings
+
+The page automatically saves the current session to local storage (`git-outliner.session.v1`) as settings change and when the page closes. On the next visit it restores the last opened **local repository path**, rereads current Git history, and reapplies the current view without needing to save or load a named view.
+
+This includes unsaved view changes, selected branches and root, commit visibility overrides, filters, ticket parsing, rewrite rules, layout preferences, checklist search, the selected saved-view menu item, open/collapsed panels, the rewrite preview sample, and unapplied filter/regex/rewrite drafts. Invalid or incomplete regex drafts are preserved as text without applying them. **Zoom and pan are deliberately not stored**; each visit starts at 100% with the diagram at its origin.
+
+**Export settings** and **Import settings** transfer the same session as a versioned JSON file. This is separate from named **Save/Load view** and **Import/Export view JSON**: named views remain repository-bound configurations in the app's files, while browser settings also include transient controls and unfinished edits. Import validates the settings and rereads the repository before replacing the current session. No history graph or SVG is stored in local storage or settings JSON. Settings imports are limited to 2 MB.
+
+The settings envelope is `{ format: "git-outliner-settings", version: 1, repositoryPath, view, dirty, ui: { query, selectedView, expanded, drafts } }`; `src/session.ts` defines the validated schema. Drafts contain the repository input, unapplied filter and ticket regex, rewrite rules, whether rule edits are pending, and the preview sample. `view` contains the applied v1 tuned-view configuration (or null before opening a repository). An unfinished view name is allowed in browser settings; named-view saves still require a nonempty name.
+
+Browser storage belongs to the current origin (host and port). Changing the port or clearing browser data starts a separate session; use settings export/import to transfer it. If a repository is unavailable at startup, its settings are retained and a read error is shown; reopen the matching repository to resume. Malformed/unsupported stored settings are reported and retained until you open a repository or import valid settings. Storage failures are reported without preventing manual use or settings export. A successful browser autosave allows closing the tab without a named-view save prompt; explicit switches to other views still ask before discarding unsaved edits.
 
 ## Message rewrites and markers
 
@@ -134,6 +146,7 @@ Tests generate isolated repositories in the system temp directory and cover tick
 - `server/git.ts`: safe Git reads, current repository identity and reconciliation.
 - `server/store.ts`: validated, atomic tuned-view persistence.
 - `server/index.ts`: loopback HTTP API and Vite/static hosting.
+- `src/session.ts`: validated browser session settings and local-storage persistence.
 - `src/model.ts`: v1 schema, ticket parser and visibility rules.
 - `src/rewrite.ts`, `server/rewrite.ts`: ordered capture replacements and bounded worker execution.
 - `src/layout.ts`: deterministic layout model and standalone SVG rendering.

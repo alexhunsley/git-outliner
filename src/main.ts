@@ -11,6 +11,12 @@ import {
   type TunedView,
 } from "./model.ts";
 import { RewriteRulesSchema, type RewriteRule } from "./rewrite.ts";
+import {
+  SettingsSchema,
+  readSettings,
+  writeSettings,
+  type Settings,
+} from "./session.ts";
 import { renderSvg } from "./layout.ts";
 const app = document.querySelector<HTMLDivElement>("#root")!;
 let repo: Repository | undefined,
@@ -62,6 +68,88 @@ let rewriteSample = "Merged PR 2556: XYZ123 Fix a bug",
   previewError = "";
 let previewSequence = 0,
   previewTimer: ReturnType<typeof setTimeout> | undefined;
+let openedPath = "",
+  storageError = "",
+  storageReadBlocked = false;
+let drafts: Settings["ui"]["drafts"] = {
+  repositoryPath: "",
+  filter: "",
+  ticketPattern: "",
+  rewrites: [],
+  rewritePending: false,
+  rewriteSample,
+};
+let expanded: Record<string, boolean> = {},
+  selectedView = "",
+  controlsViewId = "";
+function syncViewControls() {
+  if (controlsViewId === (view?.id || "")) return;
+  controlsViewId = view?.id || "";
+  drafts.filter = view?.display.patterns || "";
+  drafts.ticketPattern = view?.tickets.pattern || "";
+}
+function captureControls() {
+  const value = (id: string, fallback: string) =>
+    (document.getElementById(id) as HTMLInputElement | null)?.value ?? fallback;
+  drafts.repositoryPath = value("path", drafts.repositoryPath);
+  drafts.filter = value("filter-patterns", drafts.filter);
+  drafts.ticketPattern = value("pattern", drafts.ticketPattern);
+  selectedView = value("saved", selectedView);
+}
+function settingsSnapshot(): Settings {
+  return SettingsSchema.parse({
+    format: "git-outliner-settings",
+    version: 1,
+    repositoryPath: repo?.path || openedPath,
+    view: view || null,
+    dirty,
+    ui: {
+      query,
+      selectedView,
+      expanded,
+      drafts: {
+        ...drafts,
+        rewrites: rewriteDraft,
+        rewritePending,
+        rewriteSample,
+      },
+    },
+  });
+}
+function persistSession() {
+  if (storageReadBlocked) return;
+  try {
+    writeSettings(window.localStorage, settingsSnapshot());
+    storageError = "";
+  } catch {
+    storageError =
+      "Browser settings could not be saved. Local storage may be unavailable or full; use Export settings.";
+  }
+  const el = document.querySelector("#storage-status");
+  if (el) el.textContent = storageError;
+}
+function setSettings(settings: Settings) {
+  storageReadBlocked = false;
+  storageError = "";
+  openedPath = settings.repositoryPath;
+  view = settings.view || undefined;
+  repo = undefined;
+  history = undefined;
+  dirty = settings.dirty;
+  query = settings.ui.query;
+  selectedView = settings.ui.selectedView;
+  expanded = { ...settings.ui.expanded };
+  drafts = structuredClone(settings.ui.drafts);
+  rewriteDraft = structuredClone(drafts.rewrites);
+  rewritePending = drafts.rewritePending;
+  rewriteSample = drafts.rewriteSample;
+  draftViewId = controlsViewId = view?.id || "";
+  previewOutput = rewriteSample;
+  previewError = "";
+  ++previewSequence;
+  scale = 1;
+  if (rewriteDraft.length) schedulePreview();
+}
 function rewritePanel() {
   if (!view) return "";
   if (draftViewId !== view.id) {
@@ -139,6 +227,7 @@ function draw() {
   const viewport = document.querySelector("#viewport");
   const scroll = [viewport?.scrollLeft || 0, viewport?.scrollTop || 0];
   const sideScroll = document.querySelector("aside")?.scrollTop || 0;
+  syncViewControls();
   const count =
     history?.lanes.reduce(
       (n, l) =>
@@ -150,9 +239,9 @@ function draw() {
       0,
     ) || 0;
   const svg = history && view ? renderSvg(history, view) : "";
-  app.innerHTML = `<header><div class="brand">◈ <span>Git Outliner</span></div><span class="tag">LOCAL / READ ONLY</span><div class="repo-open"><label class="sr" for="path">Repository path</label><input id="path" placeholder="/absolute/path/to/repository" value="${esc(repo?.path || "")}"><button data-action="open" ${busy ? "disabled" : ""}>Open repository</button></div></header>
+  app.innerHTML = `<header><div class="brand">◈ <span>Git Outliner</span></div><span class="tag">LOCAL / READ ONLY</span><div class="repo-open"><label class="sr" for="path">Repository path</label><input id="path" placeholder="/absolute/path/to/repository" value="${esc(drafts.repositoryPath)}"><button data-action="open" ${busy ? "disabled" : ""}>Open repository</button></div></header>
   <div class="status" role="status" aria-live="polite">${busy ? "Reading live Git history…" : error ? `<span class="error">${esc(error)}</span>` : esc(notice || (repo ? repo.path : "Choose a local repository to begin. Your Git state is never modified."))}</div>
-  <main><aside><fieldset ${busy ? "disabled" : ""}><section><div class="eyebrow">01 / TUNED VIEW</div><label for="saved">Saved views</label><select id="saved"><option value="">Choose a saved view…</option>${saved.map((v) => `<option value="${v.id}">${esc(v.name)} · ${esc(v.repository.pathHint.split("/").pop() || "")}</option>`).join("")}</select><div class="row"><button data-action="load">Load</button><button data-action="new" ${!repo ? "disabled" : ""}>New</button><button data-action="import">Import JSON</button></div>
+  <main><aside><fieldset ${busy ? "disabled" : ""}><section><div class="eyebrow">01 / TUNED VIEW</div><label for="saved">Saved views</label><select id="saved"><option value="">Choose a saved view…</option>${saved.map((v) => `<option value="${v.id}">${esc(v.name)} · ${esc(v.repository.pathHint.split("/").pop() || "")}</option>`).join("")}</select><div class="row"><button data-action="load">Load</button><button data-action="new" ${!repo ? "disabled" : ""}>New</button><button data-action="import">Import view JSON</button></div><div class="row"><button data-action="export-settings">Export settings</button><button data-action="import-settings">Import settings</button></div><p id="storage-status" class="hint" role="status">${esc(storageError)}</p>
   ${view ? `<label for="name">View name ${dirty ? '<span class="muted">· unsaved</span>' : ""}</label><input id="name" maxlength="120" value="${esc(view.name)}"><div class="row"><button class="primary" data-action="save">Save</button><button data-action="duplicate">Duplicate</button><button data-action="delete">Delete</button></div><button class="text-button" data-action="json">Export view JSON ↗</button>` : ""}</section>
   ${
     view && repo
@@ -163,13 +252,13 @@ function draw() {
               `<label class="check"><input type="checkbox" data-branch="${esc(b.ref)}" ${view!.branches.includes(b.ref) ? "checked" : ""}><span>${esc(label(b.ref))}</span></label>`,
           )
           .join("")}</div></section>
-  <section><div class="eyebrow">03 / COMMITS & MERGES</div><label for="display-mode">Show</label><select id="display-mode"><option value="merges" ${view.display.mode === "merges" ? "selected" : ""}>Merges & branching points only</option><option value="all" ${view.display.mode === "all" ? "selected" : ""}>All commits</option></select><label for="filter-patterns">Filter diagram by text</label><textarea id="filter-patterns" rows="4" maxlength="10000" placeholder="CTR-123&#10;fix login">${esc(view.display.patterns)}</textarea><p class="hint">One literal pattern per line. Matches any line, ignoring case, in the message, tickets or SHA. Blank shows all. Branch connections remain for context.</p><button data-action="filter">Apply filter</button><label class="sr" for="search">Search checklist</label><input id="search" type="search" placeholder="Search tickets, subjects, SHA…" value="${esc(query)}"><div class="row"><button data-action="all">All</button><button data-action="none">None</button><button data-action="defaults">Reset overrides</button></div><p class="hint">Controls apply to all discovered events, in this display mode and text filter, including those hidden by checklist search.</p><div id="events">${eventList()}</div></section>
+  <section><div class="eyebrow">03 / COMMITS & MERGES</div><label for="display-mode">Show</label><select id="display-mode"><option value="merges" ${view.display.mode === "merges" ? "selected" : ""}>Merges & branching points only</option><option value="all" ${view.display.mode === "all" ? "selected" : ""}>All commits</option></select><label for="filter-patterns">Filter diagram by text</label><textarea id="filter-patterns" rows="4" maxlength="10000" placeholder="CTR-123&#10;fix login">${esc(drafts.filter)}</textarea><p class="hint">One literal pattern per line. Matches any line, ignoring case, in the message, tickets or SHA. Blank shows all. Branch connections remain for context.</p><button data-action="filter">Apply filter</button><label class="sr" for="search">Search checklist</label><input id="search" type="search" placeholder="Search tickets, subjects, SHA…" value="${esc(query)}"><div class="row"><button data-action="all">All</button><button data-action="none">None</button><button data-action="defaults">Reset overrides</button></div><p class="hint">Controls apply to all discovered events, in this display mode and text filter, including those hidden by checklist search.</p><div id="events">${eventList()}</div></section>
   ${rewritePanel()}
-  <section><details><summary>Parsing & presentation</summary><label for="pattern">Ticket regex</label><input id="pattern" value="${esc(view.tickets.pattern)}"><button data-action="pattern">Apply regex</button><label for="policy">New commits / merges default to</label><select id="policy"><option value="include" ${view.visibility.default === "include" ? "selected" : ""}>Included</option><option value="exclude" ${view.visibility.default === "exclude" ? "selected" : ""}>Excluded</option></select><label for="spacing">Event spacing</label><input id="spacing" type="range" min="72" max="220" step="1" value="${view.layout.spacing}"><label for="width">Lane width</label><input id="width" type="range" min="240" max="600" step="10" value="${view.layout.laneWidth}"><label class="check"><input id="compact" type="checkbox" ${view.layout.compact ? "checked" : ""}>Compact labels</label></details></section>`
+  <section><details data-panel="presentation"><summary>Parsing & presentation</summary><label for="pattern">Ticket regex</label><input id="pattern" value="${esc(drafts.ticketPattern)}"><button data-action="pattern">Apply regex</button><label for="policy">New commits / merges default to</label><select id="policy"><option value="include" ${view.visibility.default === "include" ? "selected" : ""}>Included</option><option value="exclude" ${view.visibility.default === "exclude" ? "selected" : ""}>Excluded</option></select><label for="spacing">Event spacing</label><input id="spacing" type="range" min="72" max="220" step="1" value="${view.layout.spacing}"><label for="width">Lane width</label><input id="width" type="range" min="240" max="600" step="10" value="${view.layout.laneWidth}"><label class="check"><input id="compact" type="checkbox" ${view.layout.compact ? "checked" : ""}>Compact labels</label></details></section>`
       : ""
   }</fieldset></aside>
   <article><div class="toolbar"><div><div class="eyebrow">LIVE REPOSITORY DIAGRAM</div><h1>${esc(view?.name || "History, with a little clarity.")}</h1><span class="muted">${history ? `${history.lanes.length} lanes · ${count} visible ${view?.display.mode === "all" ? "commits" : "merges / branch points"} · newest to oldest ↓` : "Curate branches and merges into a reusable view."}</span></div><div class="row"><button data-action="refresh" ${!view || busy ? "disabled" : ""}>↻ Refresh / regenerate</button><button data-action="svg" ${!history || busy ? "disabled" : ""}>Export SVG ↗</button></div></div>
-  ${history && view ? `<div class="warnings">${warningList()}</div><div class="canvas-controls"><button data-action="minus" aria-label="Zoom out">−</button><span id="zoom-label">${Math.round(scale * 100)}%</span><button data-action="plus" aria-label="Zoom in">+</button><button data-action="fit">Fit to view</button><span class="hint">Drag to pan · scroll to explore · hover labels for full messages</span></div><div id="viewport" tabindex="0" aria-label="Scrollable diagram"><div id="diagram" style="width:${getSvgSize(svg, "width") * scale}px;height:${getSvgSize(svg, "height") * scale}px"><div style="transform:scale(${scale});transform-origin:top left">${svg}</div></div></div>` : `<div class="empty"><div class="empty-symbol">⑂</div><h2>Your repository. Your story.</h2><p>Open a local Git repository, choose a root and descendant branches,<br>then tune the merges you want to show.</p><p class="hint">Saved rules follow your live history. Export clean, vector SVGs.</p></div>`}</article></main><input id="import-file" type="file" accept=".json,application/json" hidden>`;
+  ${history && view ? `<div class="warnings">${warningList()}</div><div class="canvas-controls"><button data-action="minus" aria-label="Zoom out">−</button><span id="zoom-label">${Math.round(scale * 100)}%</span><button data-action="plus" aria-label="Zoom in">+</button><button data-action="fit">Fit to view</button><span class="hint">Drag to pan · scroll to explore · hover labels for full messages</span></div><div id="viewport" tabindex="0" aria-label="Scrollable diagram"><div id="diagram" style="width:${getSvgSize(svg, "width") * scale}px;height:${getSvgSize(svg, "height") * scale}px"><div style="transform:scale(${scale});transform-origin:top left">${svg}</div></div></div>` : `<div class="empty"><div class="empty-symbol">⑂</div><h2>Your repository. Your story.</h2><p>Open a local Git repository, choose a root and descendant branches,<br>then tune the merges you want to show.</p><p class="hint">Saved rules follow your live history. Export clean, vector SVGs.</p></div>`}</article></main><input id="import-file" type="file" accept=".json,application/json" hidden><input id="settings-file" type="file" accept=".json,application/json" hidden>`;
   const nextViewport = document.querySelector("#viewport");
   if (nextViewport) {
     nextViewport.scrollLeft = scroll[0];
@@ -182,7 +271,28 @@ function draw() {
     if (selection != null && input && ["text", "search"].includes(input.type))
       input.setSelectionRange(selection, selection);
   }
+  const savedSelect = document.querySelector<HTMLSelectElement>("#saved");
+  if (savedSelect) savedSelect.value = selectedView;
+  wirePanels();
   wirePan();
+  persistSession();
+}
+const wiredPanels = new WeakSet<HTMLDetailsElement>();
+function wirePanels() {
+  document
+    .querySelectorAll<HTMLDetailsElement>("details[data-panel]")
+    .forEach((panel) => {
+      if (wiredPanels.has(panel)) return;
+      wiredPanels.add(panel);
+      const key = panel.dataset.panel!;
+      if (key in expanded) panel.open = expanded[key];
+      panel.addEventListener("toggle", () => {
+        if (panel.isConnected) {
+          expanded[key] = panel.open;
+          persistSession();
+        }
+      });
+    });
 }
 function getSvgSize(svg: string, attr: string) {
   return Number(svg.match(new RegExp(`${attr}="(\\d+)"`))?.[1] || 500);
@@ -197,18 +307,25 @@ function eventList() {
           .toLowerCase()
           .includes(query.toLowerCase()),
       );
-      return `<details open class="event-group"><summary>${esc(label(l.ref))} <span class="muted">${events.length}</span></summary><div class="row"><button data-group="${esc(l.ref)}" data-set="true">All</button><button data-group="${esc(l.ref)}" data-set="false">None</button></div>${events.length ? events.map((c) => `<div class="event"><label class="check"><input type="checkbox" data-event="${c.sha}" ${visible(view!, c.sha) ? "checked" : ""}><span><strong>${esc(commitLabel(c, view!))}</strong><span class="event-subject" title="${esc(c.body)}">${esc(view!.rewrites.length ? "" : c.subject)}</span><small>${new Date(c.timestamp * 1000).toISOString().slice(0, 10)} · ${c.sha.slice(0, 8)}</small></span></label>${c.sha in view!.visibility.overrides ? `<button class="reset" data-reset="${c.sha}" title="Use default visibility">Reset to default</button>` : ""}</div>`).join("") : '<p class="hint">No matching events in this branch segment.</p>'}</details>`;
+      return `<details open class="event-group" data-panel="${esc(l.ref)}"><summary>${esc(label(l.ref))} <span class="muted">${events.length}</span></summary><div class="row"><button data-group="${esc(l.ref)}" data-set="true">All</button><button data-group="${esc(l.ref)}" data-set="false">None</button></div>${events.length ? events.map((c) => `<div class="event"><label class="check"><input type="checkbox" data-event="${c.sha}" ${visible(view!, c.sha) ? "checked" : ""}><span><strong>${esc(commitLabel(c, view!))}</strong><span class="event-subject" title="${esc(c.body)}">${esc(view!.rewrites.length ? "" : c.subject)}</span><small>${new Date(c.timestamp * 1000).toISOString().slice(0, 10)} · ${c.sha.slice(0, 8)}</small></span></label>${c.sha in view!.visibility.overrides ? `<button class="reset" data-reset="${c.sha}" title="Use default visibility">Reset to default</button>` : ""}</div>`).join("") : '<p class="hint">No matching events in this branch segment.</p>'}</details>`;
     })
     .join("");
 }
 function warningList() {
   if (!history || !view || !history.warnings.length) return "";
-  return `<details ${history.unresolved.length || history.warnings.some((w) => w.kind === "merge") ? "open" : ""}><summary>${history.warnings.length} reconciliation / ancestry notices${history.unresolved.length ? ` · ${history.unresolved.length} unresolved branches` : ""}</summary>${history.warnings.map((w, i) => `<div class="warning"><p>${esc(w.message)}</p>${w.ref && history!.unresolved.includes(w.ref) ? `<select aria-label="Replacement local branch" id="remap-${i}">${options()}</select><button data-remap="${i}">Reassign</button>${w.ref !== view!.root ? `<button data-remove="${esc(w.ref)}">Remove selection</button>` : ""}` : ""}${w.sha ? `<button data-reset="${w.sha}">Reset override</button><select id="merge-remap-${i}" aria-label="Replacement commit"><option value="">Select a commit explicitly…</option>${history!.lanes.flatMap((l) => l.commits.map((c) => `<option value="${c.sha}">${esc(label(l.ref))} · ${c.sha.slice(0, 8)} · ${esc(c.subject)}</option>`)).join("")}</select><button data-merge-remap="${i}">Move override</button>` : ""}</div>`).join("")}</details>`;
+  return `<details data-panel="warnings" ${history.unresolved.length || history.warnings.some((w) => w.kind === "merge") ? "open" : ""}><summary>${history.warnings.length} reconciliation / ancestry notices${history.unresolved.length ? ` · ${history.unresolved.length} unresolved branches` : ""}</summary>${history.warnings.map((w, i) => `<div class="warning"><p>${esc(w.message)}</p>${w.ref && history!.unresolved.includes(w.ref) ? `<select aria-label="Replacement local branch" id="remap-${i}">${options()}</select><button data-remap="${i}">Reassign</button>${w.ref !== view!.root ? `<button data-remove="${esc(w.ref)}">Remove selection</button>` : ""}` : ""}${w.sha ? `<button data-reset="${w.sha}">Reset override</button><select id="merge-remap-${i}" aria-label="Replacement commit"><option value="">Select a commit explicitly…</option>${history!.lanes.flatMap((l) => l.commits.map((c) => `<option value="${c.sha}">${esc(label(l.ref))} · ${c.sha.slice(0, 8)} · ${esc(c.subject)}</option>`)).join("")}</select><button data-merge-remap="${i}">Move override</button>` : ""}</div>`).join("")}</details>`;
 }
 async function refresh() {
-  if (!repo || !view) return;
+  if (!view) return;
+  if (!repo && openedPath)
+    repo = await api<Repository>("/api/repository", { path: openedPath });
+  if (!repo) return;
+  openedPath = repo.path;
   history = undefined; // No stale graph when reconciliation fails.
-  history = await api<History>("/api/history", { path: repo.path, view });
+  history = await api<History>("/api/history", {
+    path: repo.path,
+    view: { ...view, name: view.name.trim() || "Untitled view" },
+  });
   repo = history.repository;
 }
 async function run(work: () => Promise<void>) {
@@ -305,6 +422,24 @@ app.addEventListener("click", (event) => {
     return;
   }
   const action = d.action;
+  if (action === "export-settings") {
+    captureControls();
+    try {
+      download(
+        "git-outliner-settings.json",
+        JSON.stringify(settingsSnapshot(), null, 2),
+        "application/json",
+      );
+    } catch (e) {
+      error = String(e);
+      draw();
+    }
+    return;
+  }
+  if (action === "import-settings" && discard()) {
+    document.querySelector<HTMLInputElement>("#settings-file")!.click();
+    return;
+  }
   if (action === "add-rewrite") {
     rewriteDraft.push({
       pattern: String.raw`^Merged PR \d+:\s+([A-Z]+\d+)\s+(.+)$`,
@@ -329,8 +464,13 @@ app.addEventListener("click", (event) => {
     if (discard())
       void run(async () => {
         const next = await api<Repository>("/api/repository", { path });
+        const resume =
+          !repo && view && sameRepository(view.repository, next.identity);
         repo = next;
-        view = newView(next);
+        openedPath = next.path;
+        drafts.repositoryPath = next.path;
+        storageReadBlocked = false;
+        if (!resume) view = newView(next);
         history = undefined;
         dirty = true;
         await refresh();
@@ -350,7 +490,11 @@ app.addEventListener("click", (event) => {
               : selected.repository.pathHint,
         });
         repo = next;
+        openedPath = next.path;
+        drafts.repositoryPath = next.path;
+        storageReadBlocked = false;
         view = structuredClone(selected);
+        controlsViewId = "";
         dirty = false;
         await refresh();
       });
@@ -471,6 +615,34 @@ app.addEventListener("click", (event) => {
 });
 app.addEventListener("change", (event) => {
   const input = event.target as HTMLInputElement;
+  if (input.id === "settings-file" && input.files?.[0]) {
+    const file = input.files[0];
+    void run(async () => {
+      if (file.size > 2 * 1024 * 1024)
+        throw new Error("Settings file exceeds 2 MB.");
+      const settings = SettingsSchema.parse(JSON.parse(await file.text()));
+      let next: Repository | undefined, nextHistory: History | undefined;
+      if (settings.repositoryPath && settings.view) {
+        next = await api<Repository>("/api/repository", {
+          path: settings.repositoryPath,
+        });
+        nextHistory = await api<History>("/api/history", {
+          path: next.path,
+          view: {
+            ...settings.view,
+            name: settings.view.name.trim() || "Untitled view",
+          },
+        });
+      }
+      setSettings(settings);
+      repo = next;
+      history = nextHistory;
+      notice = "Settings imported and saved in this browser.";
+    });
+    return;
+  }
+  captureControls();
+  persistSession();
   if (input.id === "import-file" && input.files?.[0]) {
     const file = input.files[0];
     void run(async () => {
@@ -488,6 +660,9 @@ app.addEventListener("change", (event) => {
           "View belongs to a different repository. Open the matching local repository first.",
         );
       repo = next;
+      openedPath = next.path;
+      drafts.repositoryPath = next.path;
+      storageReadBlocked = false;
       view = { ...imported, id: crypto.randomUUID() };
       history = undefined;
       dirty = true;
@@ -536,6 +711,7 @@ app.addEventListener("change", (event) => {
 });
 app.addEventListener("input", (event) => {
   const input = event.target as HTMLInputElement;
+  captureControls();
   if (
     input.dataset.rulePattern !== undefined ||
     input.dataset.ruleReplacement !== undefined
@@ -562,7 +738,9 @@ app.addEventListener("input", (event) => {
   if (input.id === "search") {
     query = input.value;
     document.querySelector("#events")!.innerHTML = eventList();
+    wirePanels();
   }
+  persistSession();
 });
 app.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && (event.target as HTMLElement).id === "path")
@@ -591,10 +769,28 @@ function wirePan() {
   vp.addEventListener("pointerup", () => (start = undefined));
   vp.addEventListener("pointercancel", () => (start = undefined));
 }
-window.addEventListener("beforeunload", (e) => {
-  if (dirty) e.preventDefault();
+window.addEventListener("pagehide", () => {
+  captureControls();
+  persistSession();
 });
+window.addEventListener("beforeunload", (e) => {
+  captureControls();
+  persistSession();
+  if (dirty && storageError) e.preventDefault();
+});
+try {
+  const settings = readSettings(window.localStorage);
+  if (settings) setSettings(settings);
+} catch {
+  storageReadBlocked = true;
+  storageError =
+    "Saved browser settings could not be read. Import settings or open a repository to continue.";
+}
 draw();
 void run(async () => {
-  saved = await api("/api/views");
+  try {
+    saved = await api("/api/views");
+  } finally {
+    if (view && openedPath) await refresh();
+  }
 });

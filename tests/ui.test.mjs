@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { buildSync } from "esbuild";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createFixture, fixtureGit as g } from "../scripts/fixture.ts";
@@ -16,13 +16,26 @@ const bundle = buildSync({
   format: "iife",
   loader: { ".css": "empty" },
 }).outputFiles[0].text;
-async function browser(store) {
+async function browser(store, session, storageUnavailable = false) {
   const dom = new JSDOM('<div id="root"></div>', {
     url: "http://127.0.0.1:4317",
     runScripts: "outside-only",
     pretendToBeVisual: true,
   });
   const w = dom.window;
+  if (session !== undefined)
+    w.localStorage.setItem("git-outliner.session.v1", session);
+  if (storageUnavailable)
+    Object.defineProperty(w, "localStorage", {
+      value: {
+        getItem() {
+          throw new Error("Blocked");
+        },
+        setItem() {
+          throw new Error("Blocked");
+        },
+      },
+    });
   const downloads = [];
   let pending = 0;
   w.structuredClone = structuredClone;
@@ -279,6 +292,167 @@ test("rewrite editor previews, validates, applies and persists rules with merge 
   } finally {
     b?.dom.window.close();
     reloaded?.dom.window.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("browser autosaves applied settings and drafts, restores live repository, and exports/imports without zoom or pan", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "outliner-session-ui-")),
+    path = join(dir, "repo");
+  let b, resumed, imported, missing;
+  const key = "git-outliner.session.v1";
+  try {
+    const commits = await createFixture(path),
+      store = new ViewStore(join(dir, "views"));
+    b = await browser(store);
+    b.input("#path", path);
+    await b.click('[data-action="open"]');
+    await b.change('[data-branch="refs/heads/staging"]', true);
+    await b.change(`[data-event="${commits.main}"]`, false);
+    await b.change("#display-mode", "all");
+    await b.change("#compact", true);
+    await b.change("#spacing", "130");
+    await b.change("#width", "400");
+    b.input("#filter-patterns", "CTR-100\nCTR-201");
+    await b.click('[data-action="filter"]');
+    await b.click('[data-action="add-rewrite"]');
+    b.input("#rewrite-pattern-0", "["); // An unapplied, invalid draft must survive.
+    b.input("#rewrite-replacement-0", "$1 updated");
+    b.input("#rewrite-sample", "Preview sample");
+    b.input("#name", "Unsaved session");
+    b.input("#filter-patterns", "Unapplied filter\nsecond line");
+    b.input("#pattern", "[");
+    b.input("#search", "foundation");
+    const panel = b.find('[data-panel="presentation"]');
+    panel.open = true;
+    panel.dispatchEvent(new b.w.Event("toggle"));
+    await b.click('[data-action="plus"]');
+    const viewport = b.find("#viewport");
+    viewport.scrollTop = 200;
+    viewport.scrollLeft = 100;
+    b.w.dispatchEvent(new b.w.Event("pagehide"));
+    const raw = b.w.localStorage.getItem(key),
+      snapshot = JSON.parse(raw);
+    assert.equal(snapshot.repositoryPath, await realpath(path));
+    assert.equal(snapshot.view.name, "Unsaved session");
+    assert.equal(snapshot.view.visibility.overrides[commits.main], false);
+    assert.equal(snapshot.ui.drafts.filter, "Unapplied filter\nsecond line");
+    assert.equal(snapshot.ui.drafts.ticketPattern, "[");
+    assert.equal(snapshot.ui.drafts.rewrites[0].pattern, "[");
+    assert.doesNotMatch(
+      raw,
+      /"(?:scale|zoom|pan|scrollTop|scrollLeft|commits|events)"/,
+    );
+    // Live history changes while the page is closed; configuration must not freeze it.
+    g(path, "switch", "-c", "session-new");
+    g(path, "commit", "--allow-empty", "-m", "work");
+    g(path, "switch", "main");
+    g(path, "merge", "--no-ff", "session-new", "-m", "CTR-100 A new merge");
+    const added = g(path, "rev-parse", "HEAD");
+    resumed = await browser(store, raw);
+    assert.equal(resumed.find("#path").value, snapshot.repositoryPath);
+    assert.equal(resumed.find("#name").value, "Unsaved session");
+    assert.equal(
+      resumed.find("#filter-patterns").value,
+      snapshot.ui.drafts.filter,
+    );
+    assert.equal(resumed.find("#pattern").value, "[");
+    assert.equal(resumed.find("#rewrite-pattern-0").value, "[");
+    assert.equal(resumed.find("#rewrite-replacement-0").value, "$1 updated");
+    assert.equal(resumed.find("#rewrite-sample").value, "Preview sample");
+    assert.equal(resumed.find("#search").value, "foundation");
+    assert.equal(resumed.find("#compact").checked, true);
+    assert.equal(resumed.find("#spacing").value, "130");
+    assert.equal(resumed.find('[data-panel="presentation"]').open, true);
+    assert.equal(resumed.find("#zoom-label").textContent, "100%");
+    assert.equal(resumed.find("#viewport").scrollTop, 0);
+    assert.ok(
+      resumed.w.document.querySelector(`#diagram [data-event="${added}"]`),
+    );
+    assert.equal((await store.list()).length, 0); // Autosave does not create named files.
+    await resumed.click('[data-action="export-settings"]');
+    const exported = await resumed.downloads.at(-1).text();
+    assert.deepEqual(JSON.parse(exported), snapshot);
+    imported = await browser(store);
+    await imported.click('[data-action="import-settings"]');
+    const file = imported.find("#settings-file");
+    Object.defineProperty(file, "files", {
+      configurable: true,
+      value: [{ size: exported.length, text: async () => exported }],
+    });
+    file.dispatchEvent(new imported.w.Event("change", { bubbles: true }));
+    await imported.settle();
+    assert.equal(
+      imported.find("#filter-patterns").value,
+      snapshot.ui.drafts.filter,
+    );
+    assert.equal(imported.find("#path").value, snapshot.repositoryPath);
+    assert.equal(
+      JSON.parse(imported.w.localStorage.getItem(key)).view.name,
+      "Unsaved session",
+    );
+    const before = imported.w.localStorage.getItem(key);
+    Object.defineProperty(imported.find("#settings-file"), "files", {
+      configurable: true,
+      value: [{ size: 2, text: async () => "{}" }],
+    });
+    imported
+      .find("#settings-file")
+      .dispatchEvent(new imported.w.Event("change", { bubbles: true }));
+    await imported.settle();
+    assert.equal(imported.w.localStorage.getItem(key), before);
+    assert.ok(imported.w.document.querySelector(".error"));
+    missing = await browser(
+      store,
+      JSON.stringify({ ...snapshot, repositoryPath: path + "/unavailable" }),
+    );
+    assert.equal(missing.w.document.querySelector("#diagram"), null);
+    assert.equal(
+      JSON.parse(missing.w.localStorage.getItem(key)).view.name,
+      "Unsaved session",
+    );
+    assert.ok(missing.w.document.querySelector(".error"));
+    await missing.click('[data-action="open"]');
+    assert.equal(missing.find("#name").value, "Unsaved session");
+    assert.equal(missing.find("#rewrite-pattern-0").value, "[");
+  } finally {
+    b?.dom.window.close();
+    resumed?.dom.window.close();
+    imported?.dom.window.close();
+    missing?.dom.window.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("broken or unavailable browser storage leaves the app usable and warns visibly", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "outliner-storage-ui-"));
+  let corrupt, blocked;
+  try {
+    const store = new ViewStore(join(dir, "views"));
+    corrupt = await browser(store, "{broken");
+    assert.match(
+      corrupt.find("#storage-status").textContent,
+      /could not be read/,
+    );
+    assert.equal(
+      corrupt.w.localStorage.getItem("git-outliner.session.v1"),
+      "{broken",
+    );
+    blocked = await browser(store, undefined, true);
+    assert.match(
+      blocked.find("#storage-status").textContent,
+      /could not be read/,
+    );
+    blocked.input("#path", "/some/repository");
+    await blocked.click('[data-action="export-settings"]');
+    assert.equal(
+      JSON.parse(await blocked.downloads.at(-1).text()).ui.drafts
+        .repositoryPath,
+      "/some/repository",
+    );
+  } finally {
+    corrupt?.dom.window.close();
+    blocked?.dom.window.close();
     await rm(dir, { recursive: true, force: true });
   }
 });
