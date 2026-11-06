@@ -45,6 +45,7 @@ export const ViewSchema = z
         showNotes: z.boolean().default(true),
         ghostFiltered: z.boolean().default(false),
         multiline: z.boolean().default(true),
+        messageMode: z.enum(["wrapped", "single", "overflow"]).optional(),
         padding: z.number().int().min(0).max(120).default(8),
       })
       .strict(),
@@ -233,4 +234,12 @@ export function diagramCommits(
     commit,
     ghost: !normalShas.has(commit.sha),
   }));
+}
+
+export function messageMode(
+  view: TunedView,
+): "wrapped" | "single" | "overflow" {
+  return (
+    view.layout.messageMode ?? (view.layout.multiline ? "wrapped" : "single")
+  );
 }

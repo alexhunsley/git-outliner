@@ -7,6 +7,7 @@ import {
 } from "./text.ts";
 import {
   diagramCommits,
+  messageMode,
   commitLabel,
   type History,
   type TunedView,
@@ -54,6 +55,7 @@ export function layout(
   measure: MeasureText = fallbackMeasure,
   availableWidth?: number,
 ): Diagram {
+  const mode = messageMode(view);
   const shown = history.lanes.flatMap((l) =>
     diagramCommits(history, l, view).map((event) => event.commit),
   );
@@ -152,9 +154,18 @@ export function layout(
     history.lanes.flatMap((lane, i) =>
       diagramCommits(history, lane, view).map(({ commit }) => {
         const labelWidth = labelRight(i, commit.sha) - laneX(i) - 14;
-        const lines = view.layout.multiline
-          ? wrapText(commitLabel(commit, view), labelWidth - 16, measure)
-          : [elideText(commitLabel(commit, view), labelWidth - 16, measure)];
+        const lines =
+          mode === "wrapped"
+            ? wrapText(commitLabel(commit, view), labelWidth - 16, measure)
+            : [
+                mode === "single"
+                  ? elideText(
+                      commitLabel(commit, view),
+                      labelWidth - 16,
+                      measure,
+                    )
+                  : commitLabel(commit, view).replace(/\s+/gu, " ").trim(),
+              ];
         const note = view.layout.showNotes ? view.notes[commit.sha] : undefined;
         const noteLines = note
           ? wrapText(note, labelWidth - 16, measure, 11, 400)
@@ -295,7 +306,21 @@ export function layout(
     root: l.ref === view.root,
   }));
   return {
-    width,
+    width:
+      mode === "overflow"
+        ? Math.ceil(
+            Math.max(
+              width,
+              ...shown.map(
+                (commit) =>
+                  laneX(owner.get(commit.sha)!) +
+                  22 +
+                  measure(labels.get(commit.sha)!.lines[0], 13, 650) +
+                  24,
+              ),
+            ),
+          )
+        : width,
     titleLines,
     legendLines,
     headingY,
@@ -420,7 +445,7 @@ export function renderSvg(
         badgeWidth,
       }) => {
         const eventColor = color(x);
-        return `<g data-event="${c.sha}" data-kind="${c.parents.length > 1 ? "merge" : "commit"}" opacity="${ghost ? 0.4 : 1}" tabindex="0"><title>${e((c.parents.length > 1 ? "Merge" : "Commit") + "\n" + c.sha + "\n" + c.body)}</title><circle cx="${x}" cy="${y}" r="6" fill="#fcfbf7" stroke="${eventColor}" stroke-width="3"/>${c.parents.length > 1 ? `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central" font-size="7" font-weight="800" fill="${eventColor}" aria-label="Merge">M</text>` : ""}${(c.versions || []).map((version, i) => `<g data-version="${e(version)}"><rect x="${x - 16 - badgeWidth}" y="${y - 11 + i * 26}" width="${badgeWidth}" height="22" rx="5" fill="#dff3dc" stroke="#b5d6b1"/><text x="${x - 8 - badgeWidth}" y="${y + 4 + i * 26}" font-size="11" font-weight="650" fill="#285c32">${e(version)}</text></g>`).join("")}<rect x="${x + 14}" y="${y + LABEL_TOP}" width="${width}" height="${height}" rx="6" fill="#fcfbf7"/><text x="${x + 22}" y="${y - 1}" font-size="13" font-weight="650">${textLines(lines, x + 22, y + 4, 18)}</text>${view.layout.compact ? "" : `<text x="${x + 22}" y="${y + lines.length * 18 + 6}" font-size="10" fill="#748780">${new Date(c.timestamp * 1000).toISOString().slice(0, 10)} · ${c.sha.slice(0, 8)}</text>`}${noteLines.length ? `<text data-note="${c.sha}" x="${x + 22}" y="${y + lines.length * 18 + (view.layout.compact ? 0 : 20) + 10}" font-size="11" fill="#78817d">${textLines(noteLines, x + 22, y + lines.length * 18 + (view.layout.compact ? 0 : 20) + 10, 15)}</text>` : ""}</g>`;
+        return `<g data-event="${c.sha}" data-kind="${c.parents.length > 1 ? "merge" : "commit"}" opacity="${ghost ? 0.4 : 1}" tabindex="0"><title>${e((c.parents.length > 1 ? "Merge" : "Commit") + "\n" + c.sha + "\n" + c.body)}</title><circle cx="${x}" cy="${y}" r="6" fill="#fcfbf7" stroke="${eventColor}" stroke-width="3"/>${c.parents.length > 1 ? `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central" font-size="7" font-weight="800" fill="${eventColor}" aria-label="Merge">M</text>` : ""}${(c.versions || []).map((version, i) => `<g data-version="${e(version)}"><rect x="${x - 16 - badgeWidth}" y="${y - 11 + i * 26}" width="${badgeWidth}" height="22" rx="5" fill="#dff3dc" stroke="#b5d6b1"/><text x="${x - 8 - badgeWidth}" y="${y + 4 + i * 26}" font-size="11" font-weight="650" fill="#285c32">${e(version)}</text></g>`).join("")}${messageMode(view) === "overflow" ? "" : `<rect x="${x + 14}" y="${y + LABEL_TOP}" width="${width}" height="${height}" rx="6" fill="#fcfbf7"/>`}<text x="${x + 22}" y="${y - 1}" font-size="13" font-weight="650">${textLines(lines, x + 22, y + 4, 18)}</text>${view.layout.compact ? "" : `<text x="${x + 22}" y="${y + lines.length * 18 + 6}" font-size="10" fill="#748780">${new Date(c.timestamp * 1000).toISOString().slice(0, 10)} · ${c.sha.slice(0, 8)}</text>`}${noteLines.length ? `<text data-note="${c.sha}" x="${x + 22}" y="${y + lines.length * 18 + (view.layout.compact ? 0 : 20) + 10}" font-size="11" fill="#78817d">${textLines(noteLines, x + 22, y + lines.length * 18 + (view.layout.compact ? 0 : 20) + 10, 15)}</text>` : ""}</g>`;
       },
     )
     .join("")}

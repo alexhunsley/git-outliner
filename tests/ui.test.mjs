@@ -351,7 +351,7 @@ test("browser autosaves applied settings and drafts, restores live repository, a
     await b.change(`[data-event="${commits.main}"]`, false);
     await b.change("#display-mode", "all");
     await b.change("#show-metadata", false);
-    await b.change("#single-line", true);
+    await b.change("#message-mode", "single");
     await b.change("#spacing", "80");
     await b.change("#width", "400");
     b.input("#filter-patterns", "CTR-100\nCTR-201");
@@ -403,7 +403,7 @@ test("browser autosaves applied settings and drafts, restores live repository, a
     assert.equal(resumed.find("#rewrite-sample").value, "Preview sample");
     assert.equal(resumed.find("#search").value, "foundation");
     assert.equal(resumed.find("#show-metadata").checked, false);
-    assert.equal(resumed.find("#single-line").checked, true);
+    assert.equal(resumed.find("#message-mode").value, "single");
     assert.equal(resumed.find("#spacing").value, "80");
     assert.equal(resumed.find('[data-panel="presentation"]').open, true);
     assert.equal(resumed.find("#zoom-label").textContent, "100%");
@@ -807,6 +807,48 @@ test("omit parent merges option removes verified back-merges and persists across
       b.find(`#diagram [data-event="${sha}"]`).getAttribute("opacity"),
       "1",
     );
+  } finally {
+    b?.dom.window.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("commit message combo supports and persists all three modes", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "outliner-mode-ui-")),
+    path = join(dir, "repo");
+  let b;
+  try {
+    await createFixture(path);
+    const subject = "Overflow content " + "long commit description ".repeat(30);
+    g(path, "switch", "-c", "message-mode-source");
+    g(path, "commit", "--allow-empty", "-m", "change");
+    g(path, "switch", "main");
+    g(path, "merge", "--no-ff", "message-mode-source", "-m", subject);
+    const sha = g(path, "rev-parse", "HEAD"),
+      store = new ViewStore(join(dir, "views"));
+    b = await browser(store);
+    b.input("#path", path);
+    await b.click('[data-action="open"]');
+    assert.deepEqual(
+      [...b.find("#message-mode").options].map((o) => o.textContent),
+      ["Wrapped", "Single line", "Overflow"],
+    );
+    const node = () =>
+      b.find(`#diagram [data-event="${sha}"] text[font-size="13"]`);
+    assert.ok(node().querySelectorAll("tspan").length > 1);
+    await b.change("#message-mode", "single");
+    assert.match(node().textContent, /…$/);
+    await b.change("#message-mode", "overflow");
+    assert.equal(node().textContent, subject.trim());
+    await b.click('[data-action="save"]');
+    assert.equal((await store.list())[0].layout.messageMode, "overflow");
+    await b.click('[data-action="svg"]');
+    assert.ok((await b.downloads.at(-1).text()).includes(subject.trim()));
+    const raw = b.w.localStorage.getItem("git-outliner.session.v1");
+    b.dom.window.close();
+    b = await browser(store, raw);
+    assert.equal(b.find("#message-mode").value, "overflow");
+    assert.equal(node().textContent, subject.trim());
   } finally {
     b?.dom.window.close();
     await rm(dir, { recursive: true, force: true });

@@ -508,3 +508,44 @@ test("minimum spacing leaves only a few pixels between actual text instead of pa
     }
   }
 });
+
+test("message modes wrap, elide, or overflow without widening lane spacing or reserving extra vertical space", () => {
+  const { view, history, hashes } = widthFixture();
+  const subject =
+    "Full overflow message " + "long unabridged message ".repeat(30);
+  history.lanes[0].commits[2].subject = subject;
+  view.layout.messageMode = "wrapped";
+  const wrapped = layout(history, view, measure, 700);
+  assert.ok(
+    wrapped.events.find((e) => e.commit.sha === hashes[2]).lines.length > 1,
+  );
+  view.layout.messageMode = "single";
+  const single = layout(history, view, measure, 700);
+  assert.ok(
+    single.events
+      .find((e) => e.commit.sha === hashes[2])
+      .lines[0].endsWith("…"),
+  );
+  view.layout.messageMode = "overflow";
+  const overflow = layout(history, view, measure, 700),
+    event = overflow.events.find((e) => e.commit.sha === hashes[2]);
+  assert.deepEqual(event.lines, [subject.trim()]);
+  assert.ok(measure(event.lines[0], 13) > event.width);
+  assert.deepEqual(
+    overflow.events.map((e) => [e.x, e.y, e.height, e.width]),
+    single.events.map((e) => [e.x, e.y, e.height, e.width]),
+  );
+  assert.ok(overflow.width >= event.x + 22 + measure(event.lines[0], 13));
+  const doc = new JSDOM(renderSvg(history, view, measure, 700), {
+    contentType: "image/svg+xml",
+  }).window.document;
+  assert.equal(
+    doc.querySelector(`[data-event="${hashes[2]}"] text[font-size="13"]`)
+      .textContent,
+    subject.trim(),
+  );
+  const old = structuredClone(view);
+  delete old.layout.messageMode;
+  old.layout.multiline = false;
+  assert.equal(ViewSchema.parse(old).layout.multiline, false);
+});
