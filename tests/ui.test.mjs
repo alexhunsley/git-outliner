@@ -714,3 +714,52 @@ test("node context menu copies SHA and edits multiline notes persisted in views 
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("ghost view option persists and exports filtered items faintly without changing exclusions", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "outliner-ghost-ui-")),
+    path = join(dir, "repo");
+  let b;
+  try {
+    const commits = await createFixture(path),
+      store = new ViewStore(join(dir, "views"));
+    b = await browser(store);
+    b.input("#path", path);
+    await b.click('[data-action="open"]');
+    await b.change(`[data-event="${commits.main}"]`, false);
+    b.input("#filter-patterns", "no match in this history");
+    await b.click('[data-action="filter"]');
+    assert.equal(
+      b.w.document.querySelectorAll("#diagram [data-event]").length,
+      0,
+    );
+    await b.change("#ghost-filtered", true);
+    assert.ok(
+      b.w.document.querySelectorAll("#diagram [data-event]").length > 0,
+    );
+    assert.ok(
+      [...b.w.document.querySelectorAll("#diagram [data-event]")].every(
+        (node) => node.getAttribute("opacity") === "0.4",
+      ),
+    );
+    await b.click('[data-action="save"]');
+    assert.equal((await store.list())[0].layout.ghostFiltered, true);
+    await b.click('[data-action="svg"]');
+    assert.match(await b.downloads.at(-1).text(), /opacity="0.4"/);
+    const raw = b.w.localStorage.getItem("git-outliner.session.v1");
+    b.dom.window.close();
+    b = await browser(store, raw);
+    assert.equal(b.find("#ghost-filtered").checked, true);
+    assert.equal(
+      JSON.parse(raw).view.visibility.overrides[commits.main],
+      false,
+    );
+    await b.change("#ghost-filtered", false);
+    assert.equal(
+      b.w.document.querySelectorAll("#diagram [data-event]").length,
+      0,
+    );
+  } finally {
+    b?.dom.window.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});

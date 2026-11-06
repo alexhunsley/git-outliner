@@ -423,3 +423,56 @@ test("visible notes preserve newlines, wrap independently and reserve collision-
   assert.deepEqual(ViewSchema.parse(legacy).notes, {});
   assert.equal(ViewSchema.parse(legacy).layout.showNotes, true);
 });
+
+test("ghost option shows filtered, excluded and mode-hidden nodes at group opacity while releases stay normal", () => {
+  const { view, history, hashes } = widthFixture();
+  view.display.patterns = "keep";
+  history.lanes[0].commits[2].subject = "keep";
+  history.lanes[1].commits[0].versions = ["6.2.18"];
+  view.notes[hashes[0]] = "A ghost note";
+  view.visibility.overrides[hashes[0]] = false;
+  const original = layout(history, view, measure, 900);
+  assert.equal(original.events.length, 2);
+  const legacy = structuredClone(view);
+  delete legacy.layout.ghostFiltered;
+  assert.equal(ViewSchema.parse(legacy).layout.ghostFiltered, false);
+  view.layout.ghostFiltered = true;
+  const diagram = layout(history, view, measure, 900);
+  assert.equal(diagram.events.length, 4);
+  assert.equal(diagram.events.filter((e) => e.ghost).length, 2);
+  assertNoCollisions(diagram);
+  const doc = new JSDOM(renderSvg(history, view, measure, 900), {
+    contentType: "image/svg+xml",
+  }).window.document;
+  assert.equal(
+    doc.querySelector(`[data-event="${hashes[0]}"]`).getAttribute("opacity"),
+    "0.4",
+  );
+  assert.ok(doc.querySelector(`[data-event="${hashes[0]}"] [data-note]`));
+  assert.equal(
+    doc.querySelector(`[data-event="${hashes[2]}"]`).getAttribute("opacity"),
+    "1",
+  );
+  assert.equal(
+    doc.querySelector(`[data-event="${hashes[3]}"]`).getAttribute("opacity"),
+    "1",
+  );
+  view.display.mode = "merges";
+  view.display.patterns = "";
+  assert.ok(
+    layout(history, view, measure, 900).events.find(
+      (e) => e.commit.sha === hashes[0],
+    ).ghost,
+  );
+  view.visibility.default = "exclude";
+  assert.equal(
+    layout(history, view, measure, 900).events.filter((e) => !e.ghost).length,
+    1,
+  );
+  view.layout.ghostFiltered = false;
+  assert.deepEqual(
+    layout(history, view, measure, 900).events.map((e) => e.commit.sha),
+    [hashes[3]],
+  );
+  assert.equal(view.visibility.overrides[hashes[0]], false);
+});

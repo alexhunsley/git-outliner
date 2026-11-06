@@ -42,6 +42,7 @@ export const ViewSchema = z
         laneWidth: z.number().int().min(240).max(600),
         compact: z.boolean(),
         showNotes: z.boolean().default(true),
+        ghostFiltered: z.boolean().default(false),
         multiline: z.boolean().default(true),
         padding: z.number().int().min(0).max(120).default(8),
       })
@@ -163,6 +164,7 @@ export function newView(repository: Repository): TunedView {
       laneWidth: 320,
       compact: false,
       showNotes: true,
+      ghostFiltered: false,
       multiline: true,
       padding: 8,
     },
@@ -213,4 +215,19 @@ export function commitLabel(commit: Commit, view: TunedView): string {
       ? (commit.label ?? commit.subject)
       : commit.subject) || commit.sha.slice(0, 8)
   );
+}
+
+export function diagramCommits(
+  history: History,
+  lane: History["lanes"][number],
+  view: TunedView,
+): { commit: Commit; ghost: boolean }[] {
+  const normal = candidates(history, lane, view).filter((commit) =>
+    eventVisible(view, commit),
+  );
+  const normalShas = new Set(normal.map((commit) => commit.sha));
+  return (view.layout.ghostFiltered ? lane.commits : normal).map((commit) => ({
+    commit,
+    ghost: !normalShas.has(commit.sha),
+  }));
 }

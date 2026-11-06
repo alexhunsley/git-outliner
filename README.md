@@ -52,6 +52,12 @@ The settings envelope is `{ format: "git-outliner-settings", version: 1, reposit
 
 Browser storage belongs to the current origin (host and port). Changing the port or clearing browser data starts a separate session; use settings export/import to transfer it. If a repository is unavailable at startup, its settings are retained and a read error is shown; reopen the matching repository to resume. Malformed/unsupported stored settings are reported and retained until you open a repository or import valid settings. Storage failures are reported without preventing manual use or settings export. A successful browser autosave allows closing the tab without a named-view save prompt; explicit switches to other views still ask before discarding unsaved edits.
 
+## Ghosts of filtered items
+
+**Show ghost version of filtered items** in Parsing & presentation defaults to off. When enabled, commits from the selected first-parent histories that would be hidden by the text filter, merges-only mode, the default exclusion policy or an individual exclusion are drawn at 40% opacity. Opacity applies to the entire node group, including its circle, message, metadata and visible note. These nodes still participate in collision-free layout and support the same context menu. Versions remain fully visible because version-tagged commits bypass filters. Lane paths and fork connections retain their normal styling.
+
+The option does not change filters or saved visibility overrides. Turning it off hides those items again. It persists as `layout.ghostFiltered` in views and browser/settings JSON and applies to standalone SVG exports. The checklist search continues to filter the checklist only.
+
 ## Node notes and context menu
 
 Right-click a diagram node or its text to **Copy SHA**, **Copy commit message**, **Copy all**, or **Edit note**. Copy SHA uses the full Git object ID. Copy commit message uses the full original subject/body. Copy all joins the SHA, original message and saved note with newlines, preserving any newlines within the message/note (and includes the note even when Show notes is off). The editor supports multiple lines and blank lines. Save commits the text; Cancel leaves the previous note intact. Saving an empty note clears it. The red **Delete note** button removes the saved note entry and closes the editor. Notes are plain text, up to 20,000 characters per commit, keyed by the full SHA. They do not alter Git messages, filtering, ticket parsing or topology, and remain stored if their commit temporarily disappears.
