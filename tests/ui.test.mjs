@@ -123,21 +123,13 @@ test("DOM workflow: select lanes, toggle, save, reload, reconcile, import/export
     assert.equal(b.find("h1").textContent, "Untitled view");
     await b.change('[data-branch="refs/heads/staging"]', true);
     await b.change('[data-branch="refs/heads/release/1.0"]', true);
-    await b.change(
-      '[data-parent="refs/heads/release/1.0"]',
-      "refs/heads/staging",
-    );
     assert.match(b.find(".toolbar").textContent, /3 lanes · 5 visible merges/);
     await b.change(`[data-event="${commits.staging}"]`, false);
     assert.match(b.find(".toolbar").textContent, /4 visible merges/);
-    assert.match(b.find("#diagram").innerHTML, /inferred/);
+    assert.match(b.find("#diagram").innerHTML, /Shared/);
     b.input("#name", "Release review");
     await b.click('[data-action="save"]');
     assert.equal((await store.list())[0].name, "Release review");
-    assert.equal(
-      (await store.list())[0].branchParents["refs/heads/release/1.0"],
-      "refs/heads/staging",
-    );
     b.input("#search", "CTR-301");
     assert.equal(b.w.document.querySelectorAll("#events .event").length, 1);
     await b.change("#display-mode", "all");

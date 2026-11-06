@@ -73,16 +73,31 @@ export interface Commit {
   body: string;
   tickets: string[];
 }
+export interface HistorySegment {
+  id: string;
+  commits: Commit[];
+  refs: string[];
+  parent: string | null;
+}
+export interface SegmentGraph {
+  edges: { parent: string; child: string; firstParent: boolean }[];
+  segments: HistorySegment[];
+  tips: { ref: string; sha: string }[];
+}
+
 export interface Repository {
   path: string;
   identity: TunedView["repository"];
   branches: { ref: string; sha: string }[];
 }
+// Layout projection only: parent/branch identify lane columns, not named-branch ancestry.
 export interface Link {
+  tip?: boolean;
+  sharedRefs?: string[];
   branch: string;
   parent: string;
   base: string;
-  inferred: true;
+  inferred: boolean;
 }
 export interface Warning {
   kind: "branch" | "merge" | "ancestry" | "identity";
@@ -91,6 +106,7 @@ export interface Warning {
   sha?: string;
 }
 export interface History {
+  graph?: SegmentGraph;
   repository: Repository;
   lanes: { ref: string; events: Commit[]; commits: Commit[] }[];
   links: Link[];
@@ -165,7 +181,12 @@ export function candidates(
   lane: History["lanes"][number],
   view: TunedView,
 ): Commit[] {
-  const bases = new Set(history.links.map((link) => link.base));
+  const bases = new Set([
+    ...history.links.map((link) => link.base),
+    ...(history.graph?.segments
+      .filter((s) => s.parent)
+      .map((s) => s.commits.at(-1)!.parents[0]) || []),
+  ]);
   return lane.commits.filter(
     (commit) =>
       (view.display.mode === "all" ||

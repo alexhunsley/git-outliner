@@ -6,7 +6,7 @@ import { Worker } from "node:worker_threads";
 import { sameRepository } from "../src/model.ts";
 import type { Commit, Repository, TunedView, History } from "../src/model.ts";
 import { rewriteMessages } from "./rewrite.ts";
-import { deriveHierarchy } from "./hierarchy.ts";
+import { deriveGraph } from "./graph.ts";
 const exec = promisify(execFile);
 export async function git(path: string, args: string[]): Promise<string> {
   try {
@@ -176,20 +176,76 @@ export async function readHistory(
     );
   }
   if (histories.has(view.root)) {
-    const hierarchy = deriveHierarchy(histories, view);
-    result.links = hierarchy.links;
-    result.warnings.push(...hierarchy.warnings);
-    result.unresolved.push(...hierarchy.unresolved);
-    const connected = hierarchy.ordered;
-    // Ownership follows the resolved hierarchy, never checkbox selection order.
-    const owned = new Set<string>();
-    for (const ref of connected) {
+    const rootSet = new Set(histories.get(view.root)!.map((c) => c.sha));
+    const eligible = new Map<string, Commit[]>();
+    for (const ref of [...histories.keys()].sort()) {
       const commits = histories.get(ref)!;
-      const segment = commits.filter((c) => !owned.has(c.sha));
-      const events = segment.filter((c) => c.parents.length > 1);
-      commits.forEach((c) => owned.add(c.sha));
-      result.lanes.push({ ref, events, commits: segment });
+      if (ref === view.root || commits.some((c) => rootSet.has(c.sha)))
+        eligible.set(ref, commits);
+      else {
+        result.unresolved.push(ref);
+        result.warnings.push({
+          kind: "ancestry",
+          ref,
+          message: `Cannot establish ${ref} on the root's first-parent lineage. Its lane is withheld.`,
+        });
+      }
     }
+    const graph = deriveGraph(eligible);
+    result.graph = graph;
+    const owner = (refs: string[]) =>
+      refs.includes(view.root) ? view.root : refs[0];
+    const byId = new Map(graph.segments.map((s) => [s.id, s]));
+    const owned = new Map<string, Commit[]>();
+    for (const ref of [
+      view.root,
+      ...[...eligible.keys()].filter((r) => r !== view.root).sort(),
+    ])
+      owned.set(ref, []);
+    for (const segment of graph.segments) {
+      const ref = owner(segment.refs);
+      owned.get(ref)!.push(...segment.commits);
+      if (segment.parent) {
+        const parent = byId.get(segment.parent)!;
+        if (owner(parent.refs) !== ref)
+          result.links.push({
+            branch: ref,
+            parent: owner(parent.refs),
+            base: segment.commits.at(-1)!.parents[0],
+            inferred: false,
+            sharedRefs: parent.refs,
+          });
+      }
+    }
+    for (const tip of graph.tips)
+      if (!owned.get(tip.ref)!.length && tip.ref !== view.root) {
+        const segment = graph.segments.find((s) =>
+          s.commits.some((c) => c.sha === tip.sha),
+        )!;
+        result.links.push({
+          branch: tip.ref,
+          parent: owner(segment.refs),
+          base: tip.sha,
+          inferred: false,
+          sharedRefs: segment.refs,
+          tip: true,
+        });
+      }
+    result.links.sort((a, b) =>
+      a.branch < b.branch ? -1 : a.branch > b.branch ? 1 : 0,
+    );
+    for (const [ref, commits] of owned)
+      result.lanes.push({
+        ref,
+        commits,
+        events: commits.filter((c) => c.parents.length > 1),
+      });
+    if (Object.keys(view.branchParents).length)
+      result.warnings.push({
+        kind: "ancestry",
+        message:
+          "Legacy parent-branch overrides are retained but ignored: commit segments and fork points are derived automatically from Git.",
+      });
   } else if (histories.size)
     result.warnings.push({
       kind: "ancestry",
@@ -230,5 +286,12 @@ export async function readHistory(
       .trim()
       .split("\n")
       .filter(Boolean);
+  const rank = new Map(result.order.map((sha, i) => [sha, i]));
+  for (const lane of result.lanes) {
+    lane.commits.sort(
+      (a, b) => (rank.get(b.sha) ?? 0) - (rank.get(a.sha) ?? 0),
+    );
+    lane.events = lane.commits.filter((c) => c.parents.length > 1);
+  }
   return result;
 }

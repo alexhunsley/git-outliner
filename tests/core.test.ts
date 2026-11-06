@@ -60,8 +60,8 @@ test("real histories yield exactly selected lanes and own shared merges only onc
   try {
     const h = await readHistory(f.path, f.view);
     assert.deepEqual(
-      h.lanes.map((l) => l.ref),
-      f.view.branches,
+      h.lanes.map((l) => l.ref).sort(),
+      [...f.view.branches].sort(),
     );
     const events = h.lanes.flatMap((l) => l.events);
     assert.equal(events.length, 5);
@@ -71,8 +71,8 @@ test("real histories yield exactly selected lanes and own shared merges only onc
       [f.commits.shared, f.commits.main].sort(),
     );
     assert.equal(h.links.length, 2);
-    assert.equal(h.links[1].parent, "refs/heads/staging");
-    assert.ok(h.links.every((l) => l.inferred));
+    assert.ok(h.links.every((l) => l.sharedRefs?.length));
+    assert.ok(h.links.every((l) => !l.inferred));
     assert.ok(events.some((c) => c.tickets.length === 0));
     assert.equal(events.filter((c) => c.tickets.includes("CTR-201")).length, 2);
     assert.ok(events.some((c) => c.tickets.includes("CTR-202")));
@@ -430,104 +430,97 @@ test("real interleaved branch histories overlap labels vertically with date-orde
   }
 });
 
-test("hierarchy and shared ownership are independent of selection order and commit dates", async () => {
+test("segment graph is independent of selection order, overrides and post-fork branch activity", async () => {
   const f = await setup();
   try {
-    const expected = await readHistory(f.path, f.view);
+    const before = await readHistory(f.path, f.view);
     f.view.branches = [
       f.view.root,
       "refs/heads/release/1.0",
       "refs/heads/staging",
     ];
     const reversed = await readHistory(f.path, f.view);
-    assert.deepEqual(reversed.lanes, expected.lanes);
-    assert.deepEqual(reversed.links, expected.links);
-    assert.equal(
-      reversed.links.find((l) => l.branch === "refs/heads/release/1.0")!.parent,
-      "refs/heads/staging",
-    );
-    // Advance the parent after the fork: named branch direction is no longer provable from tips.
+    assert.deepEqual(reversed.graph, before.graph);
+    assert.deepEqual(reversed.lanes, before.lanes);
     g(f.path, "switch", "staging");
-    g(f.path, "commit", "--allow-empty", "-m", "Parent advances after fork");
-    const ambiguous = await readHistory(f.path, f.view);
-    assert.ok(
-      ambiguous.warnings.some((w) => w.message.includes("Ambiguous lineage")),
-    );
-    assert.ok(
-      !ambiguous.links.some(
-        (l) =>
-          l.branch === "refs/heads/staging" &&
-          l.parent === "refs/heads/release/1.0",
-      ),
-    );
-    f.view.branchParents["refs/heads/release/1.0"] = "refs/heads/staging";
-    const chosen = await readHistory(f.path, f.view);
-    assert.equal(
-      chosen.links.find((l) => l.branch === "refs/heads/release/1.0")!.parent,
+    g(f.path, "commit", "--allow-empty", "-m", "B advances after fork");
+    const after = await readHistory(f.path, f.view);
+    const fork = after.graph!.segments.find((s) =>
+      s.commits.some((c) => c.sha === f.commits.staging),
+    )!;
+    assert.deepEqual(fork.refs, [
+      "refs/heads/release/1.0",
       "refs/heads/staging",
+    ]);
+    assert.equal(
+      after.graph!.segments.filter((s) => s.parent === fork.id).length,
+      2,
     );
-    assert.deepEqual(
-      ViewSchema.parse(JSON.parse(JSON.stringify(f.view))).branchParents,
-      f.view.branchParents,
-    );
-    f.view.branchParents["refs/heads/staging"] = "refs/heads/release/1.0";
-    const cycle = await readHistory(f.path, f.view);
-    assert.equal(cycle.lanes.length, 1);
-    assert.ok(cycle.warnings.some((w) => /cycl/.test(w.message)));
-    f.view.branchParents = { "refs/heads/staging": "refs/heads/missing" };
+    assert.equal(after.unresolved.length, 0);
+    const diagram = layout(after, f.view);
+    assert.ok(diagram.paths.some((path) => path.refs.length > 1));
     assert.ok(
-      (await readHistory(f.path, f.view)).unresolved.includes(
-        "refs/heads/staging",
+      diagram.captions.some((caption) =>
+        caption.lines.join(" ").includes("Shared:"),
       ),
     );
+    assert.match(renderSvg(after, f.view), /Shared segment/);
+    const unchanged = JSON.stringify(after.graph);
+    f.view.visibility.overrides[f.commits.staging] = false;
+    assert.ok(layout(after, f.view).captions.length);
+    assert.equal(JSON.stringify(after.graph), unchanged);
+    delete f.view.visibility.overrides[f.commits.staging];
+
+    f.view.branchParents = {
+      "refs/heads/staging": "refs/heads/release/1.0",
+      "refs/heads/release/1.0": "refs/heads/staging",
+    };
+    const ignored = await readHistory(f.path, f.view);
+    assert.deepEqual(ignored.graph, after.graph);
+    assert.deepEqual(ignored.links, after.links);
+    assert.ok(ignored.warnings.some((w) => w.message.includes("ignored")));
   } finally {
     await rm(f.dir, { recursive: true, force: true });
   }
 });
-
-test("closest shared branching point yields A to B to C after both descendants advance", async () => {
+test("A/B/C fork topology survives different names, activity, identical tips and missing refs", async () => {
   const f = await setup();
   try {
-    // Rename the fixture's nested chain and advance its intermediate branch.
     g(f.path, "branch", "-m", "main", "A");
-    g(f.path, "branch", "-m", "staging", "B");
-    g(f.path, "branch", "-m", "release/1.0", "C");
-    g(f.path, "switch", "B");
-    g(f.path, "commit", "--allow-empty", "-m", "B advances after C fork");
+    g(f.path, "branch", "-m", "staging", "Z-B");
+    g(f.path, "branch", "-m", "release/1.0", "B-C");
+    g(f.path, "switch", "Z-B");
+    for (let i = 0; i < 5; i++)
+      g(f.path, "commit", "--allow-empty", "-m", "Parent advances " + i);
     f.view.root = "refs/heads/A";
-    f.view.branches = ["refs/heads/A", "refs/heads/C", "refs/heads/B"];
-    const unknown = await readHistory(f.path, f.view);
-    assert.equal(unknown.links.length, 0);
-    assert.equal(unknown.lanes.length, 3);
+    f.view.branches = ["refs/heads/B-C", "refs/heads/A", "refs/heads/Z-B"];
+    const h = await readHistory(f.path, f.view),
+      graph = h.graph!;
+    const bc = graph.segments.find((s) =>
+      s.commits.some((c) => c.sha === f.commits.staging),
+    )!;
+    assert.deepEqual(bc.refs, ["refs/heads/B-C", "refs/heads/Z-B"]);
+    const children = graph.segments.filter((s) => s.parent === bc.id);
+    assert.equal(children.length, 2);
     assert.ok(
-      unknown.warnings.some((w) => w.message.includes("Ambiguous lineage")),
+      children.every((s) => s.commits.at(-1)!.parents[0] === f.commits.staging),
     );
-    f.view.branchParents = {
-      "refs/heads/B": "refs/heads/A",
-      "refs/heads/C": "refs/heads/B",
-    };
-    const h = await readHistory(f.path, f.view);
-    assert.deepEqual(
-      h.links.map((l) => [l.parent, l.branch]),
-      [
-        ["refs/heads/A", "refs/heads/B"],
-        ["refs/heads/B", "refs/heads/C"],
-      ],
-    );
-    assert.equal(h.links[1].base, f.commits.staging);
-    f.view.branches = ["refs/heads/B", "refs/heads/A", "refs/heads/C"];
-    const reordered = await readHistory(f.path, f.view);
-    assert.deepEqual(reordered.links, h.links);
-    assert.deepEqual(reordered.lanes, h.lanes);
-    assert.ok(!h.warnings.some((w) => w.message.includes("Ambiguous lineage")));
-    const old = structuredClone(f.view);
-    old.branchParents["refs/heads/C"] = "refs/heads/A";
+    const ancestor = graph.segments.find((s) => s.id === bc.parent)!;
+    assert.ok(ancestor.refs.includes(f.view.root));
     assert.equal(
-      (await readHistory(f.path, old)).links.find(
-        (l) => l.branch === "refs/heads/C",
-      )!.parent,
-      "refs/heads/A",
+      new Set(graph.segments.flatMap((s) => s.commits.map((c) => c.sha))).size,
+      graph.segments.flatMap((s) => s.commits).length,
     );
+    f.view.branches.reverse();
+    assert.deepEqual((await readHistory(f.path, f.view)).graph, graph);
+    g(f.path, "branch", "identical", "Z-B");
+    f.view.branches.push("refs/heads/identical");
+    const identical = await readHistory(f.path, f.view);
+    assert.equal(identical.lanes.length, 4);
+    assert.equal(identical.unresolved.length, 0);
+    g(f.path, "branch", "-D", "B-C");
+    const missing = await readHistory(f.path, f.view);
+    assert.ok(missing.unresolved.includes("refs/heads/B-C"));
   } finally {
     await rm(f.dir, { recursive: true, force: true });
   }

@@ -261,25 +261,13 @@ function draw() {
   ${view ? `<label for="name">View name ${dirty ? '<span class="muted">· unsaved</span>' : ""}</label><input id="name" maxlength="120" value="${esc(view.name)}"><div class="row"><button class="primary" data-action="save">Save</button><button data-action="duplicate">Duplicate</button><button data-action="delete">Delete</button></div><button class="text-button" data-action="json">Export view JSON ↗</button>` : ""}</section>
   ${
     view && repo
-      ? `<section><div class="eyebrow">02 / BRANCHES</div><label for="root">Diagram root</label><select id="root">${!repo.branches.some((b) => b.ref === view!.root) ? `<option value="${esc(view.root)}">Missing: ${esc(label(view.root))}</option>` : ""}${options(view.root)}</select><p class="hint">Only local branches. Dashed connections indicate inferred common ancestry.</p><div class="branch-list">${repo.branches
+      ? `<section><div class="eyebrow">02 / BRANCHES</div><label for="root">Diagram root</label><select id="root">${!repo.branches.some((b) => b.ref === view!.root) ? `<option value="${esc(view.root)}">Missing: ${esc(label(view.root))}</option>` : ""}${options(view.root)}</select><p class="hint">Only local branches. Forks and shared segments are derived from commits; grey segments belong to multiple selected refs.</p><div class="branch-list">${repo.branches
           .filter((b) => b.ref !== view!.root)
           .map(
             (b) =>
               `<label class="check"><input type="checkbox" data-branch="${esc(b.ref)}" ${view!.branches.includes(b.ref) ? "checked" : ""}><span>${esc(label(b.ref))}</span></label>`,
           )
-          .join("")}</div>${view!.branches
-          .filter((ref) => ref !== view!.root)
-          .map(
-            (ref) =>
-              `<label>Parent of ${esc(label(ref))}<select data-parent="${esc(ref)}"><option value="">Auto</option>${view!.branchParents[ref] && !view!.branches.includes(view!.branchParents[ref]) ? `<option selected value="${esc(view!.branchParents[ref])}">Unavailable: ${esc(label(view!.branchParents[ref]))}</option>` : ""}${view!.branches
-                .filter((parent) => parent !== ref)
-                .map(
-                  (parent) =>
-                    `<option value="${esc(parent)}" ${view!.branchParents[ref] === parent ? "selected" : ""}>${esc(label(parent))}</option>`,
-                )
-                .join("")}</select></label>`,
-          )
-          .join("")}</section>
+          .join("")}</div></section>
   <section><div class="eyebrow">03 / COMMITS & MERGES</div><label for="display-mode">Show</label><select id="display-mode"><option value="merges" ${view.display.mode === "merges" ? "selected" : ""}>Merges & branching points only</option><option value="all" ${view.display.mode === "all" ? "selected" : ""}>All commits</option></select><label for="filter-patterns">Filter diagram by text</label><textarea id="filter-patterns" rows="4" maxlength="10000" placeholder="CTR-123&#10;fix login">${esc(drafts.filter)}</textarea><p class="hint">One literal pattern per line. Matches any line, ignoring case, in the message, tickets or SHA. Blank shows all. Branch connections remain for context.</p><button data-action="filter">Apply filter</button><label class="sr" for="search">Search checklist</label><input id="search" type="search" placeholder="Search tickets, subjects, SHA…" value="${esc(query)}"><div class="row"><button data-action="all">All</button><button data-action="none">None</button><button data-action="defaults">Reset overrides</button></div><p class="hint">Controls apply to all discovered events, in this display mode and text filter, including those hidden by checklist search.</p><div id="events">${eventList()}</div></section>
   ${rewritePanel()}
   <section><details data-panel="presentation"><summary>Parsing & presentation</summary><label for="pattern">Ticket regex</label><input id="pattern" value="${esc(drafts.ticketPattern)}"><button data-action="pattern">Apply regex</button><label for="policy">New commits / merges default to</label><select id="policy"><option value="include" ${view.visibility.default === "include" ? "selected" : ""}>Included</option><option value="exclude" ${view.visibility.default === "exclude" ? "selected" : ""}>Excluded</option></select><label for="spacing">Event spacing: ${view.layout.padding}px</label><input id="spacing" type="range" min="0" max="120" step="1" value="${view.layout.padding}"><p class="hint">Vertical gap between labels in a branch. Zero adds no gap; connections and intervening events may still require room.</p><label for="width">Lane width</label><input id="width" type="range" min="240" max="600" step="10" value="${view.layout.laneWidth}"><label class="check"><input id="single-line" type="checkbox" ${!view.layout.multiline ? "checked" : ""}>Single line commit msg</label><label class="check"><input id="show-metadata" type="checkbox" ${!view.layout.compact ? "checked" : ""}>Show date + hash</label></details></section>`
@@ -351,6 +339,11 @@ function getSvgSize(svg: string, attr: string) {
 function eventList() {
   if (!history || !view)
     return '<p class="hint">Select branches to discover commits and merges.</p>';
+  const memberships = new Map(
+    history.graph?.segments.flatMap((segment) =>
+      segment.commits.map((commit) => [commit.sha, segment.refs] as const),
+    ) || [],
+  );
   return history.lanes
     .map((l) => {
       const events = candidates(history!, l, view!).filter((c) =>
@@ -358,7 +351,7 @@ function eventList() {
           .toLowerCase()
           .includes(query.toLowerCase()),
       );
-      return `<details open class="event-group" data-panel="${esc(l.ref)}"><summary>${esc(label(l.ref))} <span class="muted">${events.length}</span></summary><div class="row"><button data-group="${esc(l.ref)}" data-set="true">All</button><button data-group="${esc(l.ref)}" data-set="false">None</button></div>${events.length ? events.map((c) => `<div class="event"><label class="check"><input type="checkbox" data-event="${c.sha}" ${visible(view!, c.sha) ? "checked" : ""}><span><strong title="${esc(c.body)}">${esc(commitLabel(c, view!))}</strong><small>${new Date(c.timestamp * 1000).toISOString().slice(0, 10)} · ${c.sha.slice(0, 8)}</small></span></label>${c.sha in view!.visibility.overrides ? `<button class="reset" data-reset="${c.sha}" title="Use default visibility">Reset to default</button>` : ""}</div>`).join("") : '<p class="hint">No matching events in this branch segment.</p>'}</details>`;
+      return `<details open class="event-group" data-panel="${esc(l.ref)}"><summary>${esc(label(l.ref))} <span class="muted">${events.length}</span></summary><div class="row"><button data-group="${esc(l.ref)}" data-set="true">All</button><button data-group="${esc(l.ref)}" data-set="false">None</button></div>${events.length ? events.map((c) => `<div class="event"><label class="check"><input type="checkbox" data-event="${c.sha}" ${visible(view!, c.sha) ? "checked" : ""}><span><strong title="${esc(c.body)}">${esc(commitLabel(c, view!))}</strong>${(memberships.get(c.sha)?.length || 0) > 1 ? `<small>Shared: ${esc(memberships.get(c.sha)!.map(label).join(" / "))}</small><br/>` : ""}<small>${new Date(c.timestamp * 1000).toISOString().slice(0, 10)} · ${c.sha.slice(0, 8)}</small></span></label>${c.sha in view!.visibility.overrides ? `<button class="reset" data-reset="${c.sha}" title="Use default visibility">Reset to default</button>` : ""}</div>`).join("") : '<p class="hint">No matching events in this branch segment.</p>'}</details>`;
     })
     .join("");
 }
@@ -737,11 +730,6 @@ app.addEventListener("change", (event) => {
   if (input.dataset.event)
     void change(() => {
       view!.visibility.overrides[input.dataset.event!] = input.checked;
-    });
-  if (input.dataset.parent)
-    void change(() => {
-      if (input.value) view!.branchParents[input.dataset.parent!] = input.value;
-      else delete view!.branchParents[input.dataset.parent!];
     });
   if (input.id === "root")
     void change(() => {
