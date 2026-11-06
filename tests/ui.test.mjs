@@ -701,8 +701,8 @@ test("node context menu copies SHA and edits multiline notes persisted in views 
     context(`#diagram [data-event="${commits.main}"] circle`);
     await b.click(".node-menu [data-note]");
     assert.equal(b.find("#node-note").value, note);
-    b.input("#node-note", "");
-    await b.click('.note-dialog button[type="submit"]');
+    await b.click(".note-dialog [data-delete-note]");
+    assert.equal(b.w.document.querySelector(".note-dialog"), null);
     assert.equal(b.w.document.querySelector("#diagram text[data-note]"), null);
     assert.equal(
       JSON.parse(b.w.localStorage.getItem("git-outliner.session.v1")).view

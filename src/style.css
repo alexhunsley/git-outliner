@@ -484,3 +484,12 @@ textarea:focus {
   overflow-wrap: anywhere;
   font-size: 11px;
 }
+
+.note-dialog .note-delete {
+  color: #b42318;
+  border-color: #d6a3a0;
+}
+.note-dialog .note-delete:hover {
+  background: #fff0ef;
+  border-color: #b42318;
+}

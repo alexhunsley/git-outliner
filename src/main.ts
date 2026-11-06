@@ -840,13 +840,19 @@ function editNote(sha: string) {
   if (!view) return;
   const dialog = document.createElement("dialog");
   dialog.className = "note-dialog";
-  dialog.innerHTML = `<form><h2>Edit note</h2><p>${esc(sha)}</p><label for="node-note">Note</label><textarea id="node-note" rows="8" maxlength="20000"></textarea><div class="row"><button type="submit">Save note</button><button type="button" data-cancel>Cancel</button></div></form>`;
+  dialog.innerHTML = `<form><h2>Edit note</h2><p>${esc(sha)}</p><label for="node-note">Note</label><textarea id="node-note" rows="8" maxlength="20000"></textarea><div class="row"><button type="submit">Save note</button><button type="button" data-cancel>Cancel</button><button type="button" class="note-delete" data-delete-note>Delete note</button></div></form>`;
   const finish = () => {
     dialog.close();
     dialog.remove();
     (contextNode as HTMLElement | undefined)?.focus?.();
   };
   dialog.querySelector("[data-cancel]")!.addEventListener("click", finish);
+  dialog.querySelector("[data-delete-note]")!.addEventListener("click", () => {
+    finish();
+    void change(() => {
+      delete view!.notes[sha];
+    });
+  });
   dialog.addEventListener("cancel", (event) => {
     event.preventDefault();
     finish();
