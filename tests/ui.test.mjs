@@ -732,6 +732,12 @@ test("ghost view option persists and exports filtered items faintly without chan
       b.w.document.querySelectorAll("#diagram [data-event]").length,
       0,
     );
+    assert.equal(b.w.document.querySelector("#policy"), null);
+    assert.equal(b.find("#ghost-filtered").closest("details"), null);
+    assert.equal(
+      b.find("#ghost-filtered").closest("section"),
+      b.find("#filter-patterns").closest("section"),
+    );
     await b.change("#ghost-filtered", true);
     assert.ok(
       b.w.document.querySelectorAll("#diagram [data-event]").length > 0,
