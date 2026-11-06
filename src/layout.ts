@@ -390,17 +390,24 @@ export function layout(
   };
 }
 export function escapeXml(value: string) {
-  return value.replace(
-    /[&<>"']/g,
-    (c) =>
-      ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&apos;",
-      })[c]!,
-  );
+  // XML 1.0 excludes most C0 controls, unpaired surrogates and U+FFFE/FFFF.
+  // Escaping them as numeric entities would still produce invalid XML.
+  return value
+    .replace(
+      /[^\u0009\u000A\u000D\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu,
+      "",
+    )
+    .replace(
+      /[&<>"']/g,
+      (c) =>
+        ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&apos;",
+        })[c]!,
+    );
 }
 const colors = [
   "#176c65",

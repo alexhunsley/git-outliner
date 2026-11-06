@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { wrapText } from "../src/text.ts";
 import { newView, ViewSchema } from "../src/model.ts";
-import { layout, renderSvg, LABEL_TOP } from "../src/layout.ts";
+import { layout, renderSvg, LABEL_TOP, escapeXml } from "../src/layout.ts";
 const measure = (text, size) => [...text].length * size * 0.65;
 test("wrapping preserves words, Unicode, paragraphs and oversized identifiers without ellipses", () => {
   for (const text of [
@@ -548,4 +548,39 @@ test("message modes wrap, elide, or overflow without widening lane spacing or re
   delete old.layout.messageMode;
   old.layout.multiline = false;
   assert.equal(ViewSchema.parse(old).layout.multiline, false);
+});
+
+test("SVG text rejects XML-forbidden controls while preserving valid Unicode, newlines and escaping", () => {
+  const invalid = "\x00\x01\x08\x0b\x0c\x1f\udfff\ud800\ufffe\uffff";
+  const valid = "café 中文 😀 𐀀\t\n\r";
+  const escaped = escapeXml(invalid + valid + "<&>\"'");
+  assert.equal(escaped, valid + "&lt;&amp;&gt;&quot;&apos;");
+  assert.doesNotThrow(
+    () =>
+      new JSDOM(
+        `<svg xmlns="http://www.w3.org/2000/svg"><text>${escaped}</text></svg>`,
+        { contentType: "image/svg+xml" },
+      ),
+  );
+  const { history, view } = widthFixture();
+  view.name = "View\x01 & Unicode 😀";
+  view.rewrites = [{ pattern: ".*", replacement: "unused" }];
+  const commit = history.lanes[0].commits[0];
+  commit.subject = "Message\x01";
+  commit.body = "Original\x01\nFull body";
+  commit.label = "Rewritten\x01 <subject> 😀";
+  view.notes[commit.sha] = "Note\x01\nSecond line";
+  history.warnings.push({ kind: "ancestry", message: "Warning\x01 & details" });
+  const before = JSON.stringify({ history, view });
+  const svg = renderSvg(history, view, measure, 900);
+  const doc = new JSDOM(svg, { contentType: "image/svg+xml" }).window.document;
+  assert.equal(doc.querySelector("parsererror"), null);
+  assert.doesNotMatch(svg, /\x01/);
+  assert.match(svg, /Rewritten/);
+  assert.match(svg, /😀/);
+  assert.match(
+    doc.querySelector(`[data-event="${commit.sha}"] title`).textContent,
+    /Original\nFull body/,
+  );
+  assert.equal(JSON.stringify({ history, view }), before);
 });
