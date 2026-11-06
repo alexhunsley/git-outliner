@@ -639,14 +639,31 @@ test("node context menu copies SHA and edits multiline notes persisted in views 
       );
     };
     context(`#diagram [data-event="${commits.main}"] circle`);
-    assert.equal(b.w.document.querySelectorAll(".node-menu button").length, 2);
+    assert.equal(b.w.document.querySelectorAll(".node-menu button").length, 4);
     await b.click(".node-menu [data-copy]");
     assert.equal(copied, commits.main);
+    context(`#diagram [data-event="${commits.main}"] circle`);
+    assert.deepEqual(
+      [...b.w.document.querySelectorAll(".node-menu button")].map(
+        (el) => el.textContent,
+      ),
+      ["Copy SHA", "Copy commit message", "Copy all", "Edit note"],
+    );
+    await b.click(".node-menu [data-copy-message]");
+    const message = g(path, "show", "-s", "--format=%B", commits.main);
+    assert.equal(copied, message);
+    context(`#diagram [data-event="${commits.main}"] circle`);
+    await b.click(".node-menu [data-copy-all]");
+    assert.equal(copied, `${commits.main}\n${message}\n`);
+
     context(`#diagram [data-event="${commits.main}"] text[font-size="13"]`);
     await b.click(".node-menu [data-note]");
     const note = '\nFirst note line\n\nSecond line <script> & "quotes"\n';
     b.input("#node-note", note);
     await b.click('.note-dialog button[type="submit"]');
+    context(`#diagram [data-event="${commits.main}"] circle`);
+    await b.click(".node-menu [data-copy-all]");
+    assert.equal(copied, [commits.main, message, note].join("\n"));
     const displayed = b.find(
       `#diagram [data-event="${commits.main}"] text[data-note]`,
     );

@@ -866,13 +866,13 @@ function editNote(sha: string) {
   dialog.showModal();
   dialog.querySelector("textarea")!.focus();
 }
-async function copyCommitSha(sha: string) {
+async function copyText(text: string) {
   try {
     if (navigator.clipboard?.writeText)
-      await navigator.clipboard.writeText(sha);
+      await navigator.clipboard.writeText(text);
     else {
       const input = document.createElement("textarea");
-      input.value = sha;
+      input.value = text;
       input.style.position = "fixed";
       input.style.opacity = "0";
       document.body.append(input);
@@ -885,26 +885,40 @@ async function copyCommitSha(sha: string) {
       }
     }
   } catch (e) {
-    error = `Could not copy commit SHA: ${e instanceof Error ? e.message : String(e)}`;
+    error = `Could not copy text: ${e instanceof Error ? e.message : String(e)}`;
     draw();
   }
 }
 function showNodeMenu(node: Element, x: number, y: number) {
   const sha = node.getAttribute("data-event");
   if (!sha || !view || busy) return;
+  const commit = history?.lanes
+    .flatMap((lane) => lane.commits)
+    .find((commit) => commit.sha === sha);
+  if (!commit) return;
+  const message = commit.body || commit.subject;
+  const all = [sha, message, view.notes[sha] || ""].join("\n");
   closeNodeMenu();
   contextNode = node;
   const menu = document.createElement("div");
   nodeMenu = menu;
   menu.className = "node-menu";
   menu.setAttribute("role", "menu");
-  menu.innerHTML = `<button role="menuitem" data-copy>Copy commit SHA</button><button role="menuitem" data-note>Edit note</button>`;
+  menu.innerHTML = `<button role="menuitem" data-copy>Copy SHA</button><button role="menuitem" data-copy-message>Copy commit message</button><button role="menuitem" data-copy-all>Copy all</button><button role="menuitem" data-note>Edit note</button>`;
   document.body.append(menu);
   menu.style.left = `${Math.max(0, Math.min(x, window.innerWidth - menu.offsetWidth - 8))}px`;
   menu.style.top = `${Math.max(0, Math.min(y, window.innerHeight - menu.offsetHeight - 8))}px`;
   menu.querySelector("[data-copy]")!.addEventListener("click", () => {
     closeNodeMenu();
-    void copyCommitSha(sha);
+    void copyText(sha);
+  });
+  menu.querySelector("[data-copy-message]")!.addEventListener("click", () => {
+    closeNodeMenu();
+    void copyText(message);
+  });
+  menu.querySelector("[data-copy-all]")!.addEventListener("click", () => {
+    closeNodeMenu();
+    void copyText(all);
   });
   menu.querySelector("[data-note]")!.addEventListener("click", () => {
     closeNodeMenu();
