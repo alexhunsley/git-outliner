@@ -26,6 +26,7 @@ export const ViewSchema = z
       })
       .strict(),
     rewrites: RewriteRulesSchema,
+    rewritesEnabled: z.boolean().default(true),
     tickets: z.object({ pattern: z.string().min(1).max(500) }).strict(),
     display: z
       .object({
@@ -148,6 +149,7 @@ export function newView(repository: Repository): TunedView {
     visibility: { default: "include", overrides: {} },
     tickets: { pattern: DEFAULT_PATTERN },
     rewrites: [],
+    rewritesEnabled: true,
     display: { mode: "merges", patterns: "" },
     layout: {
       spacing: 92,
@@ -198,7 +200,7 @@ export function candidates(
 
 export function commitLabel(commit: Commit, view: TunedView): string {
   return (
-    (view.rewrites.length
+    (view.rewritesEnabled && view.rewrites.length
       ? (commit.label ?? commit.subject)
       : commit.subject) || commit.sha.slice(0, 8)
   );

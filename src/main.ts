@@ -158,6 +158,15 @@ function setSettings(settings: Settings) {
   drafts = structuredClone(settings.ui.drafts);
   rewriteDraft = structuredClone(drafts.rewrites);
   rewritePending = drafts.rewritePending;
+  if (view && rewritePending) {
+    const latest = RewriteRulesSchema.safeParse(rewriteDraft);
+    if (latest.success) {
+      view.rewrites = latest.data;
+      rewritePending = false;
+    } else
+      notice =
+        "Rule edits were not applied: correct the invalid regex and reload. Previous valid rules are retained.";
+  }
   rewriteSample = drafts.rewriteSample;
   draftViewId = controlsViewId = view?.id || "";
   previewOutput = rewriteSample;
@@ -179,7 +188,7 @@ function rewritePanel() {
   }
   return `<section><div class="eyebrow">04 / MESSAGE REWRITES</div><p class="hint">Rules run top to bottom on the subject. Parentheses capture text; $1, $2 insert it. First match per rule; unmatched messages stay unchanged. Filtering uses original messages.</p>
   ${rewriteDraft.map((rule, i) => `<div class="rewrite-rule"><label for="rewrite-pattern-${i}">Match regex · rule ${i + 1}</label><input id="rewrite-pattern-${i}" data-rule-pattern="${i}" value="${esc(rule.pattern)}" maxlength="500" spellcheck="false"><label for="rewrite-replacement-${i}">Replace with</label><input id="rewrite-replacement-${i}" data-rule-replacement="${i}" value="${esc(rule.replacement)}" maxlength="2000" spellcheck="false"><div class="row"><button data-rule-up="${i}" ${i === 0 ? "disabled" : ""}>↑ Move up</button><button data-rule-down="${i}" ${i === rewriteDraft.length - 1 ? "disabled" : ""}>↓ Move down</button><button data-rule-remove="${i}">Remove</button></div></div>`).join("")}
-  <div class="row"><button data-action="add-rewrite" ${rewriteDraft.length >= 20 ? "disabled" : ""}>Add rule</button><button data-action="apply-rewrites">Apply rewrites</button></div><label for="rewrite-sample">Live preview · original subject</label><textarea id="rewrite-sample" maxlength="10000" rows="3">${esc(rewriteSample)}</textarea><label for="rewrite-output">Rewritten label</label><output id="rewrite-output" aria-live="polite" class="${previewError ? "error" : ""}">${esc(previewError || previewOutput)}</output></section>`;
+  <div class="row"><button data-action="add-rewrite" ${rewriteDraft.length >= 20 ? "disabled" : ""}>Add rule</button><label class="check"><input id="rewrites-enabled" type="checkbox" ${view.rewritesEnabled ? "checked" : ""}>Apply renaming rules</label></div><p class="hint">Reload the page after editing rules to apply your changes.</p><label for="rewrite-sample">Live preview · original subject</label><textarea id="rewrite-sample" maxlength="10000" rows="3">${esc(rewriteSample)}</textarea><label for="rewrite-output">Rewritten label</label><output id="rewrite-output" aria-live="polite" class="${previewError ? "error" : ""}">${esc(previewError || previewOutput)}</output></section>`;
 }
 function schedulePreview() {
   const sequence = ++previewSequence;
@@ -215,11 +224,13 @@ function schedulePreview() {
     render();
   }, 200);
 }
-async function applyRewrites() {
-  view!.rewrites = RewriteRulesSchema.parse(rewriteDraft);
-  touch();
-  await refresh();
-  rewritePending = false;
+function viewForSave() {
+  return ViewSchema.parse({
+    ...view,
+    rewrites: rewritePending
+      ? RewriteRulesSchema.parse(rewriteDraft)
+      : view!.rewrites,
+  });
 }
 function discard() {
   return !dirty || confirm("Discard unsaved view changes?");
@@ -495,7 +506,6 @@ app.addEventListener("click", (event) => {
     draw();
     schedulePreview();
   }
-  if (action === "apply-rewrites") void run(applyRewrites);
   if (action === "filter" && view) {
     const patterns = (
       document.querySelector("#filter-patterns") as HTMLTextAreaElement
@@ -552,17 +562,15 @@ app.addEventListener("click", (event) => {
     });
   if (action === "save" && view)
     void run(async () => {
-      if (rewritePending) await applyRewrites();
-      await api("/api/views", ViewSchema.parse(view));
+      await api("/api/views", viewForSave());
       saved = await api("/api/views");
       dirty = false;
       notice = "View saved locally.";
     });
   if (action === "duplicate" && view)
     void run(async () => {
-      if (rewritePending) await applyRewrites();
       view = {
-        ...structuredClone(view!),
+        ...viewForSave(),
         id: crypto.randomUUID(),
         name: `${view!.name.slice(0, 110)} (copy)`,
       };
@@ -743,6 +751,10 @@ app.addEventListener("change", (event) => {
   if (input.id === "width")
     void change(() => {
       view!.layout.laneWidth = Number(input.value);
+    });
+  if (input.id === "rewrites-enabled")
+    void change(() => {
+      view!.rewritesEnabled = input.checked;
     });
   if (input.id === "single-line")
     void change(() => {

@@ -244,14 +244,37 @@ test("rewrite editor previews, validates, applies and persists rules with merge 
     await waitPreview(b, /^XYZ123: Fix a bug$/);
     b.input("#rewrite-pattern-0", "[");
     await waitPreview(b, /Invalid rewrite/);
-    await b.click('[data-action="apply-rewrites"]');
-    assert.ok(b.w.document.querySelector(".error"));
+    assert.ok(b.find("#rewrite-output").classList.contains("error"));
+    assert.equal(
+      b.w.document.querySelector('[data-action="apply-rewrites"]'),
+      null,
+    );
     b.input(
       "#rewrite-pattern-0",
       String.raw`^Merged PR \d+:\s+([A-Z]+\d+)\s+(.+)$`,
     );
     await waitPreview(b, /^XYZ123: Fix a bug$/);
-    await b.click('[data-action="apply-rewrites"]');
+    assert.ok(
+      ![...b.w.document.querySelectorAll("#diagram text")].some(
+        (el) => el.textContent === "XYZ123: Fix a bug",
+      ),
+    );
+    const initialSession = b.w.localStorage.getItem("git-outliner.session.v1");
+    b.dom.window.close();
+    b = await browser(store, initialSession);
+    assert.equal(b.find("#rewrites-enabled").checked, true);
+    await b.change("#rewrites-enabled", false);
+    assert.ok(
+      [...b.w.document.querySelectorAll("#diagram text")].some(
+        (el) => el.textContent === "Merged PR 2556: XYZ123 Fix a bug",
+      ),
+    );
+    assert.equal(
+      JSON.parse(b.w.localStorage.getItem("git-outliner.session.v1")).view
+        .rewritesEnabled,
+      false,
+    );
+    await b.change("#rewrites-enabled", true);
     assert.ok(
       [...b.w.document.querySelectorAll("#diagram text")].some(
         (el) => el.textContent === "XYZ123: Fix a bug",
@@ -288,7 +311,16 @@ test("rewrite editor previews, validates, applies and persists rules with merge 
       ),
     );
     await reloaded.click('[data-rule-remove="0"]');
-    await reloaded.click('[data-action="apply-rewrites"]');
+    assert.ok(
+      [...reloaded.w.document.querySelectorAll("#diagram text")].some(
+        (el) => el.textContent === "XYZ123: Fix a bug",
+      ),
+    );
+    const removedSession = reloaded.w.localStorage.getItem(
+      "git-outliner.session.v1",
+    );
+    reloaded.dom.window.close();
+    reloaded = await browser(store, removedSession);
     assert.match(reloaded.find("#diagram").textContent, /Merged PR 2556/);
   } finally {
     b?.dom.window.close();

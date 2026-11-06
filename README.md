@@ -63,7 +63,7 @@ Replace with: $1: $2
 Merged PR 2556: XYZ123 Fix a bug → XYZ123: Fix a bug
 ```
 
-The editable sample provides a live preview. Move rules up/down to change their order; each replaces its first match in the current subject, then passes the result to the next rule. Unmatched subjects stay unchanged. No slash delimiters or regex flags are needed. Invalid expressions display an error. **Apply rewrites** regenerates labels; **Save** also applies pending rule edits. JSON export includes pending rule edits. Rules persist with the tuned view and survive JSON import/export; older views default to no rules.
+The editable sample provides a live preview. Move rules up/down to change their order; each replaces its first match in the current subject, then passes the result to the next rule. Unmatched subjects stay unchanged. No slash delimiters or regex flags are needed. Invalid expressions display an error. **Apply renaming rules** enables or disables rewriting without deleting rules. After editing, adding, removing or reordering rules, reload the page to apply those edits. Edits autosave to browser storage; valid drafts become the active rules on reload. Invalid drafts stay editable and produce a validation notice, retaining the previous valid rules. **Save** writes edited rules to the named view without applying them to the current diagram. JSON export includes pending rule edits. Rules persist with the tuned view and survive JSON import/export; older views default to no rules.
 
 Rewriting changes presentation only: the diagram, checklist and SVG use rewritten subjects, while hover details retain original messages. Diagram filtering, checklist search and ticket extraction use original Git data. Git commits are never edited. Rewrites execute in a worker with a two-second deadline, including previews.
 
@@ -108,6 +108,7 @@ Views are stored as individual JSON files under `~/.git-outliner/views/`. Overri
     default: "include" | "exclude",
     overrides: { "<full commit SHA>": true | false, ... }
   },
+  rewritesEnabled: boolean,
   rewrites: [{ pattern: regex source, replacement: "$1: $2" }, ...],
   tickets: { pattern: JavaScript regex source (no slash delimiters or flags) },
   display: { mode: "merges" | "all", patterns: multiline literal text },
@@ -116,6 +117,8 @@ Views are stored as individual JSON files under `~/.git-outliner/views/`. Overri
 ```
 
 Layout additions default to `multiline: true` and `padding: 8` for existing views/settings. The legacy `compact` flag remains compatible and is the inverse of the new date/SHA toggle. All controls persist in named views, settings JSON and browser local storage.
+
+`rewritesEnabled` defaults to true for existing views.
 
 `rewrites` defaults to an empty array, with a maximum of 20 rules (pattern up to 500 characters, replacement up to 2,000). Patterns must be valid JavaScript regular expressions.
 

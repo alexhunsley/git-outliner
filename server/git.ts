@@ -255,7 +255,7 @@ export async function readHistory(
   await tickets(events, view.tickets.pattern);
   const labels = await rewriteMessages(
     events.map((commit) => commit.subject),
-    view.rewrites,
+    view.rewritesEnabled ? view.rewrites : [],
   );
   events.forEach((commit, i) => {
     commit.label = labels[i];
