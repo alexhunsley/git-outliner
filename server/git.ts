@@ -6,6 +6,7 @@ import { Worker } from "node:worker_threads";
 import { sameRepository } from "../src/model.ts";
 import type { Commit, Repository, TunedView, History } from "../src/model.ts";
 import { rewriteMessages } from "./rewrite.ts";
+import { readVersionTags, versionLabel } from "./versions.ts";
 import { deriveGraph } from "./graph.ts";
 const exec = promisify(execFile);
 export async function git(path: string, args: string[]): Promise<string> {
@@ -252,6 +253,15 @@ export async function readHistory(
       message: "The root is missing. Reassign it to render descendant lanes.",
     });
   const events = result.lanes.flatMap((l) => l.commits);
+  const versions = await readVersionTags(repository.path, git);
+  for (const commit of events) {
+    const labels = [
+      ...new Set(
+        (versions.get(commit.sha) || []).map((tag) => versionLabel(tag)!),
+      ),
+    ];
+    if (labels.length) commit.versions = labels;
+  }
   await tickets(events, view.tickets.pattern);
   const labels = await rewriteMessages(
     events.map((commit) => commit.subject),

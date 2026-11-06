@@ -73,6 +73,7 @@ export interface Commit {
   label?: string;
   body: string;
   tickets: string[];
+  versions?: string[];
 }
 export interface HistorySegment {
   id: string;
@@ -119,6 +120,9 @@ export function visible(view: TunedView, sha: string): boolean {
   return (
     view.visibility.overrides[sha] ?? view.visibility.default === "include"
   );
+}
+export function eventVisible(view: TunedView, commit: Commit): boolean {
+  return !!commit.versions?.length || visible(view, commit.sha);
 }
 export function parseTickets(
   message: string,
@@ -191,10 +195,11 @@ export function candidates(
   ]);
   return lane.commits.filter(
     (commit) =>
-      (view.display.mode === "all" ||
+      !!commit.versions?.length ||
+      ((view.display.mode === "all" ||
         commit.parents.length > 1 ||
         bases.has(commit.sha)) &&
-      matchesPatterns(commit, view.display.patterns),
+        matchesPatterns(commit, view.display.patterns)),
   );
 }
 

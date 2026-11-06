@@ -8,7 +8,7 @@ import {
 import {
   candidates,
   commitLabel,
-  visible,
+  eventVisible,
   type History,
   type TunedView,
   type Commit,
@@ -34,6 +34,7 @@ export interface Diagram {
     lines: string[];
     height: number;
     width: number;
+    badgeWidth: number;
   }[];
   paths: { ref: string; x: number; y1: number; y2: number; refs: string[] }[];
   links: {
@@ -52,7 +53,7 @@ export function layout(
   availableWidth?: number,
 ): Diagram {
   const shown = history.lanes.flatMap((l) =>
-    candidates(history, l, view).filter((c) => visible(view, c.sha)),
+    candidates(history, l, view).filter((c) => eventVisible(view, c)),
   );
   const needed = new Set([
     ...shown.map((c) => c.sha),
@@ -63,14 +64,39 @@ export function layout(
     ]) || []),
   ]);
   const ordered = history.order.filter((s) => needed.has(s)).reverse();
+  const badgeSizes = new Map(
+    shown.map((commit) => [
+      commit.sha,
+      {
+        width: commit.versions?.length
+          ? Math.max(
+              ...commit.versions.map((version) => measure(version, 11, 650)),
+            ) + 16
+          : 0,
+        height: commit.versions?.length ? commit.versions.length * 26 - 4 : 0,
+      },
+    ]),
+  );
+  const xs: number[] = [];
+  history.lanes.forEach((lane, i) => {
+    const badgeWidth = Math.max(
+      0,
+      ...lane.commits.map((c) => badgeSizes.get(c.sha)?.width || 0),
+    );
+    xs.push(
+      i === 0
+        ? Math.ceil(Math.max(64, badgeWidth + 40))
+        : xs[i - 1] + Math.max(view.layout.laneWidth, badgeWidth + 40),
+    );
+  });
+  const laneX = (i: number) => xs[i];
   const width = Math.max(
     history.lanes.length > 1
-      ? history.lanes.length * view.layout.laneWidth + 70
-      : 240,
+      ? xs.at(-1)! + view.layout.laneWidth + 6
+      : (xs[0] || 64) + 176,
     availableWidth && Number.isFinite(availableWidth) ? availableWidth : 480,
   );
   const positions = new Map(ordered.map((sha, i) => [sha, i]));
-  const laneX = (i: number) => 64 + i * view.layout.laneWidth;
   const laneEnd = (ref: string) =>
     ref === view.root
       ? Infinity
@@ -123,7 +149,7 @@ export function layout(
   const labels = new Map(
     history.lanes.flatMap((lane, i) =>
       candidates(history, lane, view)
-        .filter((c) => visible(view, c.sha))
+        .filter((c) => eventVisible(view, c))
         .map((commit) => {
           const labelWidth = labelRight(i, commit.sha) - laneX(i) - 14;
           const lines = view.layout.multiline
@@ -134,7 +160,11 @@ export function layout(
             {
               lines,
               width: labelWidth,
-              height: lines.length * 18 + 16 + (view.layout.compact ? 0 : 20),
+              height: Math.max(
+                lines.length * 18 + 16 + (view.layout.compact ? 0 : 20),
+                (badgeSizes.get(commit.sha)?.height || 0) + 3,
+              ),
+              badgeWidth: badgeSizes.get(commit.sha)?.width || 0,
             },
           ] as const;
         }),
@@ -175,6 +205,15 @@ export function layout(
         right: laneX(lane) + 14 + label.width,
         top: -14,
         bottom: label.height - 14,
+      });
+    const badge = badgeSizes.get(sha);
+    if (badge?.width && lane !== undefined)
+      boxes.push({
+        lane,
+        left: laneX(lane) - 16 - badge.width,
+        right: laneX(lane) - 16,
+        top: -11,
+        bottom: badge.height - 11,
       });
     for (const link of history.links.filter((link) => link.base === sha)) {
       const parent = laneX(
@@ -231,7 +270,7 @@ export function layout(
   const lanes = history.lanes.map((l, i) => ({
     headingLines: headings[i],
     ref: l.ref,
-    x: 64 + i * view.layout.laneWidth,
+    x: laneX(i),
     start,
     end:
       l.ref === view.root ||
@@ -290,7 +329,7 @@ export function layout(
     ],
     events: history.lanes.flatMap((l) =>
       candidates(history, l, view)
-        .filter((c) => visible(view, c.sha))
+        .filter((c) => eventVisible(view, c))
         .map((commit) => ({
           commit,
           x: lanes.find((lane) => lane.ref === l.ref)!.x,
@@ -359,9 +398,9 @@ export function renderSvg(
 
   ${d.links.map((l) => `<g><title>${history.graph ? (l.tip ? "Ref tip at shared commit" : "Verified shared commit fork") : "Inferred common ancestor"} ${l.base}; no historical named-branch ownership is claimed</title><path d="M${l.x1},${l.y1} V${l.y1 - 12} C${l.x1},${l.y2} ${l.x2},${l.y1 - 12} ${l.x2},${l.y2}" fill="none" stroke="#9caeaa" stroke-dasharray="5 5"/><circle cx="${l.x1}" cy="${l.y1}" r="3" fill="#9caeaa"/><text x="${l.x2 + 10}" y="${l.y2 + 18}" fill="#6c7e7a" font-size="10">${history.graph ? (l.tip ? "tip" : "fork") : "inferred"} · ${l.base.slice(0, 7)}</text></g>`).join("")}
   ${d.events
-    .map(({ commit: c, x, y, lines, height, width }) => {
+    .map(({ commit: c, x, y, lines, height, width, badgeWidth }) => {
       const eventColor = color(x);
-      return `<g data-event="${c.sha}" data-kind="${c.parents.length > 1 ? "merge" : "commit"}"><title>${e((c.parents.length > 1 ? "Merge" : "Commit") + "\n" + c.sha + "\n" + c.body)}</title><circle cx="${x}" cy="${y}" r="6" fill="#fcfbf7" stroke="${eventColor}" stroke-width="3"/>${c.parents.length > 1 ? `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central" font-size="7" font-weight="800" fill="${eventColor}" aria-label="Merge">M</text>` : ""}<rect x="${x + 14}" y="${y - 14}" width="${width}" height="${height}" rx="6" fill="#fcfbf7"/><text x="${x + 22}" y="${y - 1}" font-size="13" font-weight="650">${textLines(lines, x + 22, y + 4, 18)}</text>${view.layout.compact ? "" : `<text x="${x + 22}" y="${y + lines.length * 18 + 6}" font-size="10" fill="#748780">${new Date(c.timestamp * 1000).toISOString().slice(0, 10)} · ${c.sha.slice(0, 8)}</text>`}</g>`;
+      return `<g data-event="${c.sha}" data-kind="${c.parents.length > 1 ? "merge" : "commit"}"><title>${e((c.parents.length > 1 ? "Merge" : "Commit") + "\n" + c.sha + "\n" + c.body)}</title><circle cx="${x}" cy="${y}" r="6" fill="#fcfbf7" stroke="${eventColor}" stroke-width="3"/>${c.parents.length > 1 ? `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central" font-size="7" font-weight="800" fill="${eventColor}" aria-label="Merge">M</text>` : ""}${(c.versions || []).map((version, i) => `<g data-version="${e(version)}"><rect x="${x - 16 - badgeWidth}" y="${y - 11 + i * 26}" width="${badgeWidth}" height="22" rx="5" fill="#dff3dc" stroke="#b5d6b1"/><text x="${x - 8 - badgeWidth}" y="${y + 4 + i * 26}" font-size="11" font-weight="650" fill="#285c32">${e(version)}</text></g>`).join("")}<rect x="${x + 14}" y="${y - 14}" width="${width}" height="${height}" rx="6" fill="#fcfbf7"/><text x="${x + 22}" y="${y - 1}" font-size="13" font-weight="650">${textLines(lines, x + 22, y + 4, 18)}</text>${view.layout.compact ? "" : `<text x="${x + 22}" y="${y + lines.length * 18 + 6}" font-size="10" fill="#748780">${new Date(c.timestamp * 1000).toISOString().slice(0, 10)} · ${c.sha.slice(0, 8)}</text>`}</g>`;
     })
     .join("")}
   </g></svg>`;

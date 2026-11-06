@@ -367,3 +367,34 @@ test("zero event spacing removes all added gap on a branch despite legacy circle
     view.layout.padding = 0;
   }
 });
+
+test("stacked left-side version badges reserve space against neighbouring label cards", () => {
+  const { view, history, hashes } = widthFixture();
+  const release = history.lanes[1].commits[0];
+  release.versions = ["6.2.18", "6.2.19"];
+  const diagram = layout(history, view, measure, 900);
+  const tagged = diagram.events.find((e) => e.commit.sha === hashes[3]);
+  assert.ok(tagged.badgeWidth > 0);
+  const left = tagged.x - 16 - tagged.badgeWidth,
+    right = tagged.x - 16,
+    top = tagged.y - 11,
+    bottom = top + 48;
+  for (const event of diagram.events.filter((e) => e !== tagged)) {
+    if (left < event.x + 14 + event.width && event.x + 14 < right)
+      assert.ok(bottom <= event.y - 14 || event.y - 14 + event.height <= top);
+  }
+  const doc = new JSDOM(renderSvg(history, view, measure, 900), {
+    contentType: "image/svg+xml",
+  }).window.document;
+  const badges = [
+    ...doc.querySelectorAll(
+      `[data-event="${release.sha}"] [data-version] rect`,
+    ),
+  ];
+  assert.equal(badges.length, 2);
+  assert.ok(
+    Number(badges[0].getAttribute("y")) +
+      Number(badges[0].getAttribute("height")) <
+      Number(badges[1].getAttribute("y")),
+  );
+});

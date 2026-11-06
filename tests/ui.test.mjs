@@ -560,3 +560,46 @@ test("window resize rewraps a single lane while zoom and SVG export retain layou
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("version badges force ordinary nodes through diagram filters and exclusions and export as SVG", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "outliner-version-ui-")),
+    path = join(dir, "repo");
+  let b;
+  try {
+    await createFixture(path);
+    g(path, "commit", "--allow-empty", "-m", "Set release version");
+    const sha = g(path, "rev-parse", "HEAD");
+    g(path, "tag", "v6.2.18", sha);
+    b = await browser(new ViewStore(join(dir, "views")));
+    b.input("#path", path);
+    await b.click('[data-action="open"]');
+    b.input("#filter-patterns", "not present in any message");
+    await b.click('[data-action="filter"]');
+    await b.click('[data-action="none"]');
+    const event = b.find(`#diagram [data-event="${sha}"]`),
+      badge = event.querySelector("[data-version]");
+    assert.equal(badge.getAttribute("data-version"), "6.2.18");
+    assert.equal(badge.querySelector("text").textContent, "6.2.18");
+    const rect = badge.querySelector("rect"),
+      circle = event.querySelector("circle");
+    assert.equal(rect.getAttribute("fill"), "#dff3dc");
+    assert.ok(Number(rect.getAttribute("rx")) > 0);
+    assert.ok(Number(rect.getAttribute("x")) >= 0);
+    assert.ok(
+      Number(rect.getAttribute("x")) + Number(rect.getAttribute("width")) <
+        Number(circle.getAttribute("cx")),
+    );
+    const check = b.find(`#events [data-event="${sha}"]`);
+    assert.equal(check.checked, true);
+    assert.equal(check.disabled, true);
+    assert.equal(
+      b.w.document.querySelectorAll("#diagram [data-event]").length,
+      1,
+    );
+    await b.click('[data-action="svg"]');
+    assert.match(await b.downloads.at(-1).text(), /data-version="6.2.18"/);
+  } finally {
+    b?.dom.window.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});

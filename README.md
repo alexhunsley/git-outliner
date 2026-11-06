@@ -52,6 +52,12 @@ The settings envelope is `{ format: "git-outliner-settings", version: 1, reposit
 
 Browser storage belongs to the current origin (host and port). Changing the port or clearing browser data starts a separate session; use settings export/import to transfer it. If a repository is unavailable at startup, its settings are retained and a read error is shown; reopen the matching repository to resume. Malformed/unsupported stored settings are reported and retained until you open a repository or import valid settings. Storage failures are reported without preventing manual use or settings export. A successful browser autosave allows closing the tab without a named-view save prompt; explicit switches to other views still ask before discarding unsaved edits.
 
+## Version tags
+
+Commits on the selected first-parent histories with exact tags `vX.Y.Z` or `X.Y.Z` (numeric components) get a light-green rounded version badge to the left of their node. Display omits a leading lowercase `v`. Prerelease/build suffixes and other tag names do not match. Lightweight and annotated tags, including nested annotated tags, are read from Git on every history refresh. Tags that resolve to trees or blobs are ignored.
+
+Version-tagged commits are always shown, even in merges-only mode, with a nonmatching diagram filter, an excluded default policy or an explicit exclusion. Their checklist checkbox is disabled while tagged. Overrides are retained: removing a tag and refreshing restores the normal visibility rules. Tags on unselected first-parent histories do not introduce extra lanes or events. Multiple versions on one commit are stacked; duplicate `v6.1.19` / `6.1.19` spellings show a single `6.1.19` badge. Badges are vector shapes/text in exported SVGs and reserve space to avoid clipping and label collisions. Tag data is reread, not saved in settings JSON.
+
 ## Message rewrites and markers
 
 Under **Message rewrites**, add ordered regex rules with a **Match regex** and **Replace with** template. Parentheses capture text; `$1`, `$2`, etc. insert those captures. For example:

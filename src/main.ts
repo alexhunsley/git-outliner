@@ -4,7 +4,7 @@ import {
   commitLabel,
   newView,
   ViewSchema,
-  visible,
+  eventVisible,
   sameRepository,
   type Repository,
   type History,
@@ -260,7 +260,7 @@ function draw() {
       (n, l) =>
         n +
         (view
-          ? candidates(history!, l, view).filter((c) => visible(view!, c.sha))
+          ? candidates(history!, l, view).filter((c) => eventVisible(view!, c))
               .length
           : 0),
       0,
@@ -357,7 +357,7 @@ function eventList() {
           .toLowerCase()
           .includes(query.toLowerCase()),
       );
-      return `<details open class="event-group" data-panel="${esc(l.ref)}"><summary>${esc(label(l.ref))} <span class="muted">${events.length}</span></summary><div class="row"><button data-group="${esc(l.ref)}" data-set="true">All</button><button data-group="${esc(l.ref)}" data-set="false">None</button></div>${events.length ? events.map((c) => `<div class="event"><label class="check"><input type="checkbox" data-event="${c.sha}" ${visible(view!, c.sha) ? "checked" : ""}><span><strong title="${esc(c.body)}">${esc(commitLabel(c, view!))}</strong><small>${new Date(c.timestamp * 1000).toISOString().slice(0, 10)} · ${c.sha.slice(0, 8)}</small></span></label>${c.sha in view!.visibility.overrides ? `<button class="reset" data-reset="${c.sha}" title="Use default visibility">Reset to default</button>` : ""}</div>`).join("") : '<p class="hint">No matching events in this branch segment.</p>'}</details>`;
+      return `<details open class="event-group" data-panel="${esc(l.ref)}"><summary>${esc(label(l.ref))} <span class="muted">${events.length}</span></summary><div class="row"><button data-group="${esc(l.ref)}" data-set="true">All</button><button data-group="${esc(l.ref)}" data-set="false">None</button></div>${events.length ? events.map((c) => `<div class="event"><label class="check"><input type="checkbox" data-event="${c.sha}" ${eventVisible(view!, c) ? "checked" : ""} ${c.versions?.length ? 'disabled title="Version-tagged commits are always shown"' : ""}><span><strong title="${esc(c.body)}">${esc(commitLabel(c, view!))}</strong><small>${new Date(c.timestamp * 1000).toISOString().slice(0, 10)} · ${c.sha.slice(0, 8)}</small></span></label>${c.sha in view!.visibility.overrides ? `<button class="reset" data-reset="${c.sha}" title="Use default visibility">Reset to default</button>` : ""}</div>`).join("") : '<p class="hint">No matching events in this branch segment.</p>'}</details>`;
     })
     .join("");
 }
