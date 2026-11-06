@@ -451,3 +451,36 @@ textarea:focus {
 #viewport {
   scrollbar-gutter: stable;
 }
+.node-menu {
+  position: fixed;
+  z-index: 100;
+  min-width: 180px;
+  padding: 4px;
+  background: #fffefa;
+  border: 1px solid #cdd6cf;
+  border-radius: 6px;
+  box-shadow: 0 4px 18px #0002;
+}
+.node-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+}
+.note-dialog {
+  width: min(540px, 90vw);
+  border: 1px solid #cdd6cf;
+  border-radius: 8px;
+  padding: 24px;
+  color: #253c3c;
+}
+.note-dialog::backdrop {
+  background: #0005;
+}
+.note-dialog h2 {
+  margin-top: 0;
+}
+.note-dialog p {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}

@@ -32,6 +32,7 @@ export interface Diagram {
     x: number;
     y: number;
     lines: string[];
+    noteLines: string[];
     height: number;
     width: number;
     badgeWidth: number;
@@ -155,13 +156,23 @@ export function layout(
           const lines = view.layout.multiline
             ? wrapText(commitLabel(commit, view), labelWidth - 16, measure)
             : [elideText(commitLabel(commit, view), labelWidth - 16, measure)];
+          const note = view.layout.showNotes
+            ? view.notes[commit.sha]
+            : undefined;
+          const noteLines = note
+            ? wrapText(note, labelWidth - 16, measure, 11, 400)
+            : [];
           return [
             commit.sha,
             {
               lines,
+              noteLines,
               width: labelWidth,
               height: Math.max(
-                lines.length * 18 + 16 + (view.layout.compact ? 0 : 20),
+                lines.length * 18 +
+                  16 +
+                  (view.layout.compact ? 0 : 20) +
+                  (noteLines.length ? 6 + noteLines.length * 15 : 0),
                 (badgeSizes.get(commit.sha)?.height || 0) + 3,
               ),
               badgeWidth: badgeSizes.get(commit.sha)?.width || 0,
@@ -398,9 +409,9 @@ export function renderSvg(
 
   ${d.links.map((l) => `<g><title>${history.graph ? (l.tip ? "Ref tip at shared commit" : "Verified shared commit fork") : "Inferred common ancestor"} ${l.base}; no historical named-branch ownership is claimed</title><path d="M${l.x1},${l.y1} V${l.y1 - 12} C${l.x1},${l.y2} ${l.x2},${l.y1 - 12} ${l.x2},${l.y2}" fill="none" stroke="#9caeaa" stroke-dasharray="5 5"/><circle cx="${l.x1}" cy="${l.y1}" r="3" fill="#9caeaa"/><text x="${l.x2 + 10}" y="${l.y2 + 18}" fill="#6c7e7a" font-size="10">${history.graph ? (l.tip ? "tip" : "fork") : "inferred"} · ${l.base.slice(0, 7)}</text></g>`).join("")}
   ${d.events
-    .map(({ commit: c, x, y, lines, height, width, badgeWidth }) => {
+    .map(({ commit: c, x, y, lines, noteLines, height, width, badgeWidth }) => {
       const eventColor = color(x);
-      return `<g data-event="${c.sha}" data-kind="${c.parents.length > 1 ? "merge" : "commit"}"><title>${e((c.parents.length > 1 ? "Merge" : "Commit") + "\n" + c.sha + "\n" + c.body)}</title><circle cx="${x}" cy="${y}" r="6" fill="#fcfbf7" stroke="${eventColor}" stroke-width="3"/>${c.parents.length > 1 ? `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central" font-size="7" font-weight="800" fill="${eventColor}" aria-label="Merge">M</text>` : ""}${(c.versions || []).map((version, i) => `<g data-version="${e(version)}"><rect x="${x - 16 - badgeWidth}" y="${y - 11 + i * 26}" width="${badgeWidth}" height="22" rx="5" fill="#dff3dc" stroke="#b5d6b1"/><text x="${x - 8 - badgeWidth}" y="${y + 4 + i * 26}" font-size="11" font-weight="650" fill="#285c32">${e(version)}</text></g>`).join("")}<rect x="${x + 14}" y="${y - 14}" width="${width}" height="${height}" rx="6" fill="#fcfbf7"/><text x="${x + 22}" y="${y - 1}" font-size="13" font-weight="650">${textLines(lines, x + 22, y + 4, 18)}</text>${view.layout.compact ? "" : `<text x="${x + 22}" y="${y + lines.length * 18 + 6}" font-size="10" fill="#748780">${new Date(c.timestamp * 1000).toISOString().slice(0, 10)} · ${c.sha.slice(0, 8)}</text>`}</g>`;
+      return `<g data-event="${c.sha}" data-kind="${c.parents.length > 1 ? "merge" : "commit"}" tabindex="0"><title>${e((c.parents.length > 1 ? "Merge" : "Commit") + "\n" + c.sha + "\n" + c.body)}</title><circle cx="${x}" cy="${y}" r="6" fill="#fcfbf7" stroke="${eventColor}" stroke-width="3"/>${c.parents.length > 1 ? `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central" font-size="7" font-weight="800" fill="${eventColor}" aria-label="Merge">M</text>` : ""}${(c.versions || []).map((version, i) => `<g data-version="${e(version)}"><rect x="${x - 16 - badgeWidth}" y="${y - 11 + i * 26}" width="${badgeWidth}" height="22" rx="5" fill="#dff3dc" stroke="#b5d6b1"/><text x="${x - 8 - badgeWidth}" y="${y + 4 + i * 26}" font-size="11" font-weight="650" fill="#285c32">${e(version)}</text></g>`).join("")}<rect x="${x + 14}" y="${y - 14}" width="${width}" height="${height}" rx="6" fill="#fcfbf7"/><text x="${x + 22}" y="${y - 1}" font-size="13" font-weight="650">${textLines(lines, x + 22, y + 4, 18)}</text>${view.layout.compact ? "" : `<text x="${x + 22}" y="${y + lines.length * 18 + 6}" font-size="10" fill="#748780">${new Date(c.timestamp * 1000).toISOString().slice(0, 10)} · ${c.sha.slice(0, 8)}</text>`}${noteLines.length ? `<text data-note="${c.sha}" x="${x + 22}" y="${y + lines.length * 18 + (view.layout.compact ? 0 : 20) + 10}" font-size="11" fill="#78817d">${textLines(noteLines, x + 22, y + lines.length * 18 + (view.layout.compact ? 0 : 20) + 10, 15)}</text>` : ""}</g>`;
     })
     .join("")}
   </g></svg>`;

@@ -398,3 +398,28 @@ test("stacked left-side version badges reserve space against neighbouring label 
       Number(badges[1].getAttribute("y")),
   );
 });
+
+test("visible notes preserve newlines, wrap independently and reserve collision-free label height", () => {
+  const { view, history, hashes } = widthFixture();
+  view.layout.multiline = false;
+  const before = layout(history, view, measure, 700);
+  view.notes[hashes[3]] = "Long multiline note ".repeat(12) + "\n\nLast line";
+  const after = layout(history, view, measure, 700);
+  const a = after.events.find((e) => e.commit.sha === hashes[3]),
+    b = before.events.find((e) => e.commit.sha === hashes[3]);
+  assert.ok(a.noteLines.length > 3);
+  assert.ok(a.noteLines.includes(""));
+  assert.ok(a.height > b.height);
+  assertNoCollisions(after);
+  view.layout.showNotes = false;
+  const hidden = layout(history, view, measure, 700).events.find(
+    (e) => e.commit.sha === hashes[3],
+  );
+  assert.equal(hidden.noteLines.length, 0);
+  assert.equal(hidden.height, b.height);
+  const legacy = structuredClone(view);
+  delete legacy.notes;
+  delete legacy.layout.showNotes;
+  assert.deepEqual(ViewSchema.parse(legacy).notes, {});
+  assert.equal(ViewSchema.parse(legacy).layout.showNotes, true);
+});

@@ -52,6 +52,12 @@ The settings envelope is `{ format: "git-outliner-settings", version: 1, reposit
 
 Browser storage belongs to the current origin (host and port). Changing the port or clearing browser data starts a separate session; use settings export/import to transfer it. If a repository is unavailable at startup, its settings are retained and a read error is shown; reopen the matching repository to resume. Malformed/unsupported stored settings are reported and retained until you open a repository or import valid settings. Storage failures are reported without preventing manual use or settings export. A successful browser autosave allows closing the tab without a named-view save prompt; explicit switches to other views still ask before discarding unsaved edits.
 
+## Node notes and context menu
+
+Right-click a diagram node or its text to **Copy commit SHA** (the full Git object ID) or **Edit note**. The editor supports multiple lines and blank lines. Save commits the text; Cancel leaves the previous note intact. Saving an empty note clears it. Notes are plain text, up to 20,000 characters per commit, keyed by the full SHA. They do not alter Git messages, filtering, ticket parsing or topology, and remain stored if their commit temporarily disappears.
+
+**Show notes** in Parsing & presentation defaults to enabled. Present notes render in smaller grey wrapped text beneath the message/metadata, preserving explicit line breaks. Notes wrap independently of single-line message mode and contribute to collision-free label height. SVG exports include notes only when enabled. `notes` and `layout.showNotes` persist in named views, view/settings JSON and browser autosave; old configurations default to an empty notes map and visible notes.
+
 ## Version tags
 
 Commits on the selected first-parent histories with exact tags `vX.Y.Z` or `X.Y.Z` (numeric components) get a light-green rounded version badge to the left of their node. Display omits a leading lowercase `v`. Prerelease/build suffixes and other tag names do not match. Lightweight and annotated tags, including nested annotated tags, are read from Git on every history refresh. Tags that resolve to trees or blobs are ignored.
@@ -114,11 +120,12 @@ Views are stored as individual JSON files under `~/.git-outliner/views/`. Overri
     default: "include" | "exclude",
     overrides: { "<full commit SHA>": true | false, ... }
   },
+  notes: { "<full commit SHA>": "multiline note", ... },
   rewritesEnabled: boolean,
   rewrites: [{ pattern: regex source, replacement: "$1: $2" }, ...],
   tickets: { pattern: JavaScript regex source (no slash delimiters or flags) },
   display: { mode: "merges" | "all", patterns: multiline literal text },
-  layout: { spacing: integer 48..220, laneWidth: integer 240..600, compact: boolean, multiline: boolean, padding: integer 0..120 }
+  layout: { spacing: integer 48..220, laneWidth: integer 240..600, compact: boolean, showNotes: boolean, multiline: boolean, padding: integer 0..120 }
 }
 ```
 

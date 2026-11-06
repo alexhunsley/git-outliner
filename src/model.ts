@@ -25,6 +25,7 @@ export const ViewSchema = z
         overrides: z.record(sha, z.boolean()),
       })
       .strict(),
+    notes: z.record(sha, z.string().max(20000)).default({}),
     rewrites: RewriteRulesSchema,
     rewritesEnabled: z.boolean().default(true),
     tickets: z.object({ pattern: z.string().min(1).max(500) }).strict(),
@@ -40,6 +41,7 @@ export const ViewSchema = z
         spacing: z.number().int().min(48).max(220),
         laneWidth: z.number().int().min(240).max(600),
         compact: z.boolean(),
+        showNotes: z.boolean().default(true),
         multiline: z.boolean().default(true),
         padding: z.number().int().min(0).max(120).default(8),
       })
@@ -152,6 +154,7 @@ export function newView(repository: Repository): TunedView {
     branchParents: {},
     visibility: { default: "include", overrides: {} },
     tickets: { pattern: DEFAULT_PATTERN },
+    notes: {},
     rewrites: [],
     rewritesEnabled: true,
     display: { mode: "merges", patterns: "" },
@@ -159,6 +162,7 @@ export function newView(repository: Repository): TunedView {
       spacing: 92,
       laneWidth: 320,
       compact: false,
+      showNotes: true,
       multiline: true,
       padding: 8,
     },

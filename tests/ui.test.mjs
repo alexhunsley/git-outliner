@@ -38,6 +38,12 @@ async function browser(store, session, storageUnavailable = false) {
     });
   const downloads = [];
   let pending = 0;
+  w.HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute("open", "");
+  };
+  w.HTMLDialogElement.prototype.close = function () {
+    this.removeAttribute("open");
+  };
   w.structuredClone = structuredClone;
   w.confirm = () => true;
   w.Blob = Blob;
@@ -598,6 +604,94 @@ test("version badges force ordinary nodes through diagram filters and exclusions
     );
     await b.click('[data-action="svg"]');
     assert.match(await b.downloads.at(-1).text(), /data-version="6.2.18"/);
+  } finally {
+    b?.dom.window.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("node context menu copies SHA and edits multiline notes persisted in views and browser settings", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "outliner-notes-ui-")),
+    path = join(dir, "repo");
+  let b;
+  try {
+    const commits = await createFixture(path),
+      store = new ViewStore(join(dir, "views"));
+    b = await browser(store);
+    let copied = "";
+    Object.defineProperty(b.w.navigator, "clipboard", {
+      value: {
+        writeText: async (text) => {
+          copied = text;
+        },
+      },
+    });
+    b.input("#path", path);
+    await b.click('[data-action="open"]');
+    const context = (selector) => {
+      b.find(selector).dispatchEvent(
+        new b.w.MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          clientX: 200,
+          clientY: 200,
+        }),
+      );
+    };
+    context(`#diagram [data-event="${commits.main}"] circle`);
+    assert.equal(b.w.document.querySelectorAll(".node-menu button").length, 2);
+    await b.click(".node-menu [data-copy]");
+    assert.equal(copied, commits.main);
+    context(`#diagram [data-event="${commits.main}"] text[font-size="13"]`);
+    await b.click(".node-menu [data-note]");
+    const note = '\nFirst note line\n\nSecond line <script> & "quotes"\n';
+    b.input("#node-note", note);
+    await b.click('.note-dialog button[type="submit"]');
+    const displayed = b.find(
+      `#diagram [data-event="${commits.main}"] text[data-note]`,
+    );
+    assert.equal(displayed.getAttribute("font-size"), "11");
+    assert.equal(displayed.getAttribute("fill"), "#78817d");
+    assert.ok(displayed.querySelectorAll("tspan").length >= 3);
+    assert.equal(b.w.document.querySelector("#diagram script"), null);
+    assert.equal(
+      JSON.parse(b.w.localStorage.getItem("git-outliner.session.v1")).view
+        .notes[commits.main],
+      note,
+    );
+    await b.click('[data-action="save"]');
+    assert.equal((await store.list())[0].notes[commits.main], note);
+    await b.click('[data-action="json"]');
+    assert.equal(
+      JSON.parse(await b.downloads.at(-1).text()).notes[commits.main],
+      note,
+    );
+    await b.click('[data-action="svg"]');
+    assert.match(await b.downloads.at(-1).text(), /data-note=/);
+    await b.change("#show-notes", false);
+    assert.equal(b.w.document.querySelector("#diagram text[data-note]"), null);
+    const raw = b.w.localStorage.getItem("git-outliner.session.v1");
+    b.dom.window.close();
+    b = await browser(store, raw);
+    assert.equal(b.find("#show-notes").checked, false);
+    await b.change("#show-notes", true);
+    assert.ok(b.w.document.querySelector("#diagram text[data-note]"));
+    context(`#diagram [data-event="${commits.main}"] circle`);
+    await b.click(".node-menu [data-note]");
+    assert.equal(b.find("#node-note").value, note);
+    b.input("#node-note", "cancelled change");
+    await b.click(".note-dialog [data-cancel]");
+    context(`#diagram [data-event="${commits.main}"] circle`);
+    await b.click(".node-menu [data-note]");
+    assert.equal(b.find("#node-note").value, note);
+    b.input("#node-note", "");
+    await b.click('.note-dialog button[type="submit"]');
+    assert.equal(b.w.document.querySelector("#diagram text[data-note]"), null);
+    assert.equal(
+      JSON.parse(b.w.localStorage.getItem("git-outliner.session.v1")).view
+        .notes[commits.main],
+      undefined,
+    );
   } finally {
     b?.dom.window.close();
     await rm(dir, { recursive: true, force: true });

@@ -248,6 +248,7 @@ function options(selected = "") {
     .join("");
 }
 function draw() {
+  closeNodeMenu();
   const focused = document.activeElement as HTMLInputElement | null;
   const focusId = focused?.id,
     selection = focused?.selectionStart;
@@ -281,7 +282,7 @@ function draw() {
           .join("")}</div></section>
   <section><div class="eyebrow">03 / COMMITS & MERGES</div><label for="display-mode">Show</label><select id="display-mode"><option value="merges" ${view.display.mode === "merges" ? "selected" : ""}>Merges & branching points only</option><option value="all" ${view.display.mode === "all" ? "selected" : ""}>All commits</option></select><label for="filter-patterns">Filter diagram by text</label><textarea id="filter-patterns" rows="4" maxlength="10000" placeholder="CTR-123&#10;fix login">${esc(drafts.filter)}</textarea><p class="hint">One literal pattern per line. Matches any line, ignoring case, in the message, tickets or SHA. Blank shows all. Branch connections remain for context.</p><button data-action="filter">Apply filter</button><label class="sr" for="search">Search checklist</label><input id="search" type="search" placeholder="Search tickets, subjects, SHA…" value="${esc(query)}"><div class="row"><button data-action="all">All</button><button data-action="none">None</button><button data-action="defaults">Reset overrides</button></div><p class="hint">Controls apply to all discovered events, in this display mode and text filter, including those hidden by checklist search.</p><div id="events">${eventList()}</div></section>
   ${rewritePanel()}
-  <section><details data-panel="presentation"><summary>Parsing & presentation</summary><label for="pattern">Ticket regex</label><input id="pattern" value="${esc(drafts.ticketPattern)}"><button data-action="pattern">Apply regex</button><label for="policy">New commits / merges default to</label><select id="policy"><option value="include" ${view.visibility.default === "include" ? "selected" : ""}>Included</option><option value="exclude" ${view.visibility.default === "exclude" ? "selected" : ""}>Excluded</option></select><label for="spacing">Event spacing: ${view.layout.padding}px</label><input id="spacing" type="range" min="0" max="120" step="1" value="${view.layout.padding}"><p class="hint">Vertical gap between labels in a branch. Zero adds no gap; connections and intervening events may still require room.</p><label for="width">Lane width</label><input id="width" type="range" min="240" max="600" step="10" value="${view.layout.laneWidth}"><label class="check"><input id="single-line" type="checkbox" ${!view.layout.multiline ? "checked" : ""}>Single line commit msg</label><label class="check"><input id="show-metadata" type="checkbox" ${!view.layout.compact ? "checked" : ""}>Show date + hash</label></details></section>`
+  <section><details data-panel="presentation"><summary>Parsing & presentation</summary><label for="pattern">Ticket regex</label><input id="pattern" value="${esc(drafts.ticketPattern)}"><button data-action="pattern">Apply regex</button><label for="policy">New commits / merges default to</label><select id="policy"><option value="include" ${view.visibility.default === "include" ? "selected" : ""}>Included</option><option value="exclude" ${view.visibility.default === "exclude" ? "selected" : ""}>Excluded</option></select><label for="spacing">Event spacing: ${view.layout.padding}px</label><input id="spacing" type="range" min="0" max="120" step="1" value="${view.layout.padding}"><p class="hint">Vertical gap between labels in a branch. Zero adds no gap; connections and intervening events may still require room.</p><label for="width">Lane width</label><input id="width" type="range" min="240" max="600" step="10" value="${view.layout.laneWidth}"><label class="check"><input id="single-line" type="checkbox" ${!view.layout.multiline ? "checked" : ""}>Single line commit msg</label><label class="check"><input id="show-metadata" type="checkbox" ${!view.layout.compact ? "checked" : ""}>Show date + hash</label><label class="check"><input id="show-notes" type="checkbox" ${view.layout.showNotes ? "checked" : ""}>Show notes</label></details></section>`
       : ""
   }</fieldset></aside>
   <article><div class="toolbar"><div><div class="eyebrow">LIVE REPOSITORY DIAGRAM</div><h1>${esc(view?.name || "History, with a little clarity.")}</h1><span class="muted">${history ? `${history.lanes.length} lanes · ${count} visible ${view?.display.mode === "all" ? "commits" : "merges / branch points"} · newest to oldest ↓` : "Curate branches and merges into a reusable view."}</span></div><div class="row"><button data-action="refresh" ${!view || busy ? "disabled" : ""}>↻ Refresh / regenerate</button><button data-action="svg" ${!history || busy ? "disabled" : ""}>Export SVG ↗</button></div></div>
@@ -760,6 +761,10 @@ app.addEventListener("change", (event) => {
     void change(() => {
       view!.layout.multiline = !input.checked;
     });
+  if (input.id === "show-notes")
+    void change(() => {
+      view!.layout.showNotes = input.checked;
+    });
   if (input.id === "show-metadata")
     void change(() => {
       view!.layout.compact = !input.checked;
@@ -825,6 +830,129 @@ function wirePan() {
   vp.addEventListener("pointerup", () => (start = undefined));
   vp.addEventListener("pointercancel", () => (start = undefined));
 }
+let nodeMenu: HTMLDivElement | undefined;
+let contextNode: Element | undefined;
+function closeNodeMenu() {
+  nodeMenu?.remove();
+  nodeMenu = undefined;
+}
+function editNote(sha: string) {
+  if (!view) return;
+  const dialog = document.createElement("dialog");
+  dialog.className = "note-dialog";
+  dialog.innerHTML = `<form><h2>Edit note</h2><p>${esc(sha)}</p><label for="node-note">Note</label><textarea id="node-note" rows="8" maxlength="20000"></textarea><div class="row"><button type="submit">Save note</button><button type="button" data-cancel>Cancel</button></div></form>`;
+  const finish = () => {
+    dialog.close();
+    dialog.remove();
+    (contextNode as HTMLElement | undefined)?.focus?.();
+  };
+  dialog.querySelector("[data-cancel]")!.addEventListener("click", finish);
+  dialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    finish();
+  });
+  dialog.querySelector("form")!.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const note = dialog.querySelector<HTMLTextAreaElement>("textarea")!.value;
+    finish();
+    void change(() => {
+      if (note) view!.notes[sha] = note;
+      else delete view!.notes[sha];
+    });
+  });
+  dialog.querySelector<HTMLTextAreaElement>("textarea")!.value =
+    view.notes[sha] || "";
+  document.body.append(dialog);
+  dialog.showModal();
+  dialog.querySelector("textarea")!.focus();
+}
+async function copyCommitSha(sha: string) {
+  try {
+    if (navigator.clipboard?.writeText)
+      await navigator.clipboard.writeText(sha);
+    else {
+      const input = document.createElement("textarea");
+      input.value = sha;
+      input.style.position = "fixed";
+      input.style.opacity = "0";
+      document.body.append(input);
+      input.select();
+      try {
+        if (!document.execCommand("copy"))
+          throw new Error("Clipboard access was denied.");
+      } finally {
+        input.remove();
+      }
+    }
+  } catch (e) {
+    error = `Could not copy commit SHA: ${e instanceof Error ? e.message : String(e)}`;
+    draw();
+  }
+}
+function showNodeMenu(node: Element, x: number, y: number) {
+  const sha = node.getAttribute("data-event");
+  if (!sha || !view || busy) return;
+  closeNodeMenu();
+  contextNode = node;
+  const menu = document.createElement("div");
+  nodeMenu = menu;
+  menu.className = "node-menu";
+  menu.setAttribute("role", "menu");
+  menu.innerHTML = `<button role="menuitem" data-copy>Copy commit SHA</button><button role="menuitem" data-note>Edit note</button>`;
+  document.body.append(menu);
+  menu.style.left = `${Math.max(0, Math.min(x, window.innerWidth - menu.offsetWidth - 8))}px`;
+  menu.style.top = `${Math.max(0, Math.min(y, window.innerHeight - menu.offsetHeight - 8))}px`;
+  menu.querySelector("[data-copy]")!.addEventListener("click", () => {
+    closeNodeMenu();
+    void copyCommitSha(sha);
+  });
+  menu.querySelector("[data-note]")!.addEventListener("click", () => {
+    closeNodeMenu();
+    editNote(sha);
+  });
+  menu.addEventListener("keydown", (event) => {
+    if (["ArrowDown", "ArrowUp"].includes(event.key)) {
+      event.preventDefault();
+      const buttons = [...menu.querySelectorAll("button")];
+      const index = buttons.indexOf(
+        document.activeElement as HTMLButtonElement,
+      );
+      buttons[
+        (index + (event.key === "ArrowDown" ? 1 : buttons.length - 1)) %
+          buttons.length
+      ].focus();
+    }
+  });
+  menu.querySelector("button")!.focus();
+}
+app.addEventListener("contextmenu", (event) => {
+  const node = (event.target as Element).closest("#diagram [data-event]");
+  if (!node) return;
+  event.preventDefault();
+  showNodeMenu(node, event.clientX, event.clientY);
+});
+app.addEventListener("keydown", (event) => {
+  if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10"))
+    return;
+  const node = (event.target as Element).closest("#diagram [data-event]");
+  if (node) {
+    event.preventDefault();
+    const rect = node.getBoundingClientRect();
+    showNodeMenu(node, rect.left, rect.top);
+  }
+});
+document.addEventListener("pointerdown", (event) => {
+  if (nodeMenu && !nodeMenu.contains(event.target as Node)) closeNodeMenu();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && nodeMenu) {
+    closeNodeMenu();
+    (contextNode as HTMLElement | undefined)?.focus?.();
+  }
+});
+document.addEventListener("scroll", closeNodeMenu, true);
+window.addEventListener("resize", closeNodeMenu);
+
 window.addEventListener("pagehide", () => {
   captureControls();
   persistSession();
