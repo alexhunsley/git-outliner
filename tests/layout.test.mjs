@@ -308,7 +308,7 @@ test("multiline and metadata switches are independent, and padding controls bran
   assert.ok(single.events.every((e) => e.lines.length === 1));
   assert.ok(single.events.some((e) => e.lines[0].endsWith("…")));
   assert.ok(
-    single.events.every((e) => measure(e.lines[0], 13) <= e.width - 16),
+    single.events.every((e) => measure(e.lines[0], 13) <= e.width - 10),
   );
   const fullHeight = single.events[0].height;
   view.layout.compact = true;
@@ -583,4 +583,29 @@ test("SVG text rejects XML-forbidden controls while preserving valid Unicode, ne
     /Original\nFull body/,
   );
   assert.equal(JSON.stringify({ history, view }), before);
+});
+
+test("single-line ellipsis fills nearly all horizontal space up to canvas and neighbouring lane edges", () => {
+  const { view, history, hashes } = widthFixture();
+  view.layout.messageMode = "single";
+  history.lanes.forEach((l) =>
+    l.commits.forEach((c) => (c.subject = "ABCDE".repeat(200))),
+  );
+  const multiple = layout(history, view, measure, 1000);
+  const first = multiple.events.find((e) => e.commit.sha === hashes[2]);
+  const nextLane = multiple.lanes[1];
+  const firstEnd = first.x + 22 + measure(first.lines[0], 13);
+  assert.ok(first.lines[0].endsWith("…"));
+  assert.ok(firstEnd <= nextLane.x - 14);
+  assert.ok(nextLane.x - firstEnd < 24);
+  history.lanes = history.lanes.slice(0, 1);
+  history.links = [];
+  view.branches = [view.root];
+  for (const available of [500, 1000]) {
+    const d = layout(history, view, measure, available),
+      event = d.events[0];
+    const end = event.x + 22 + measure(event.lines[0], 13);
+    assert.ok(end <= d.width - 4);
+    assert.ok(d.width - end < 14, `Unexpected blank space: ${d.width - end}`);
+  }
 });

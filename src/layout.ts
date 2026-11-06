@@ -109,10 +109,12 @@ export function layout(
         ) ?? Infinity);
   const labelRight = (laneIndex: number, sha: string) => {
     const row = positions.get(sha)!;
-    let right = width - 24;
+    const edgeGap = mode === "wrapped" ? 24 : 2;
+    const laneGap = mode === "wrapped" ? 24 : 12;
+    let right = width - edgeGap;
     for (let i = laneIndex + 1; i < history.lanes.length; i++) {
       if (laneEnd(history.lanes[i].ref) >= row)
-        right = Math.min(right, laneX(i) - 24);
+        right = Math.min(right, laneX(i) - laneGap);
     }
     // Connections occupy their ancestor row even when an intervening lane has ended.
     for (const link of history.links) {
@@ -121,7 +123,7 @@ export function layout(
         laneX(history.lanes.findIndex((l) => l.ref === link.parent)),
         laneX(history.lanes.findIndex((l) => l.ref === link.branch)),
       );
-      if (left > laneX(laneIndex)) right = Math.min(right, left - 24);
+      if (left > laneX(laneIndex)) right = Math.min(right, left - laneGap);
     }
     return right;
   };
@@ -161,7 +163,7 @@ export function layout(
                 mode === "single"
                   ? elideText(
                       commitLabel(commit, view),
-                      labelWidth - 16,
+                      labelWidth - 10,
                       measure,
                     )
                   : commitLabel(commit, view).replace(/\s+/gu, " ").trim(),
