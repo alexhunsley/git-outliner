@@ -7,6 +7,7 @@ import { sameRepository } from "../src/model.ts";
 import type { Commit, Repository, TunedView, History } from "../src/model.ts";
 import { rewriteMessages } from "./rewrite.ts";
 import { readVersionTags, versionLabel } from "./versions.ts";
+import { upstreamMergeShas } from "./upstream.ts";
 import { deriveGraph } from "./graph.ts";
 const exec = promisify(execFile);
 export async function git(path: string, args: string[]): Promise<string> {
@@ -192,6 +193,10 @@ export async function readHistory(
         });
       }
     }
+    const upstreamMerges = upstreamMergeShas(eligible, view.root);
+    for (const commits of eligible.values())
+      for (const commit of commits)
+        if (upstreamMerges.has(commit.sha)) commit.upstreamMerge = true;
     const graph = deriveGraph(eligible);
     result.graph = graph;
     const owner = (refs: string[]) =>

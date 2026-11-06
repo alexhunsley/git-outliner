@@ -33,9 +33,10 @@ export const ViewSchema = z
       .object({
         mode: z.enum(["merges", "all"]).default("merges"),
         patterns: z.string().max(10000).default(""),
+        omitParentMerges: z.boolean().default(false),
       })
       .strict()
-      .default({ mode: "merges", patterns: "" }),
+      .default({ mode: "merges", patterns: "", omitParentMerges: false }),
     layout: z
       .object({
         spacing: z.number().int().min(48).max(220),
@@ -77,6 +78,7 @@ export interface Commit {
   body: string;
   tickets: string[];
   versions?: string[];
+  upstreamMerge?: boolean;
 }
 export interface HistorySegment {
   id: string;
@@ -158,7 +160,7 @@ export function newView(repository: Repository): TunedView {
     notes: {},
     rewrites: [],
     rewritesEnabled: true,
-    display: { mode: "merges", patterns: "" },
+    display: { mode: "merges", patterns: "", omitParentMerges: false },
     layout: {
       spacing: 92,
       laneWidth: 320,
@@ -202,9 +204,10 @@ export function candidates(
   return lane.commits.filter(
     (commit) =>
       !!commit.versions?.length ||
-      ((view.display.mode === "all" ||
-        commit.parents.length > 1 ||
-        bases.has(commit.sha)) &&
+      (!(view.display.omitParentMerges && commit.upstreamMerge) &&
+        (view.display.mode === "all" ||
+          commit.parents.length > 1 ||
+          bases.has(commit.sha)) &&
         matchesPatterns(commit, view.display.patterns)),
   );
 }

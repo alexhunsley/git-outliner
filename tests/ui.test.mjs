@@ -153,6 +153,7 @@ test("DOM workflow: select lanes, toggle, save, reload, reconcile, import/export
     assert.deepEqual(filteredView.display, {
       mode: "all",
       patterns: "REPORTING\nkeyboard navigation",
+      omitParentMerges: false,
     });
     b.input("#filter-patterns", "");
     await b.click('[data-action="filter"]');
@@ -763,6 +764,48 @@ test("ghost view option persists and exports filtered items faintly without chan
     assert.equal(
       b.w.document.querySelectorAll("#diagram [data-event]").length,
       0,
+    );
+  } finally {
+    b?.dom.window.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("omit parent merges option removes verified back-merges and persists across reload", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "outliner-backmerge-ui-")),
+    path = join(dir, "repo");
+  let b;
+  try {
+    await createFixture(path);
+    g(path, "switch", "staging");
+    g(path, "merge", "--no-ff", "main", "-m", "Bring parent changes");
+    const sha = g(path, "rev-parse", "HEAD");
+    const store = new ViewStore(join(dir, "views"));
+    b = await browser(store);
+    b.input("#path", path);
+    await b.click('[data-action="open"]');
+    await b.change('[data-branch="refs/heads/staging"]', true);
+    assert.ok(b.w.document.querySelector(`#diagram [data-event="${sha}"]`));
+    await b.change("#omit-parent-merges", true);
+    assert.equal(
+      b.w.document.querySelector(`#diagram [data-event="${sha}"]`),
+      null,
+    );
+    await b.change("#ghost-filtered", true);
+    assert.equal(
+      b.find(`#diagram [data-event="${sha}"]`).getAttribute("opacity"),
+      "0.4",
+    );
+    await b.click('[data-action="save"]');
+    assert.equal((await store.list())[0].display.omitParentMerges, true);
+    const raw = b.w.localStorage.getItem("git-outliner.session.v1");
+    b.dom.window.close();
+    b = await browser(store, raw);
+    assert.equal(b.find("#omit-parent-merges").checked, true);
+    await b.change("#omit-parent-merges", false);
+    assert.equal(
+      b.find(`#diagram [data-event="${sha}"]`).getAttribute("opacity"),
+      "1",
     );
   } finally {
     b?.dom.window.close();

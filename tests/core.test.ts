@@ -309,6 +309,7 @@ test("multiline diagram filter matches any literal pattern in messages or SHAs a
     assert.deepEqual(ViewSchema.parse(old).display, {
       mode: "merges",
       patterns: "",
+      omitParentMerges: false,
     });
   } finally {
     await rm(f.dir, { recursive: true, force: true });
