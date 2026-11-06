@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { wrapText } from "../src/text.ts";
 import { newView, ViewSchema } from "../src/model.ts";
-import { layout, renderSvg } from "../src/layout.ts";
+import { layout, renderSvg, LABEL_TOP } from "../src/layout.ts";
 const measure = (text, size) => [...text].length * size * 0.65;
 test("wrapping preserves words, Unicode, paragraphs and oversized identifiers without ellipses", () => {
   for (const text of [
@@ -61,7 +61,9 @@ test("labels and headings grow without collisions; full and compact SVG retain o
     const d = layout(history, view, measure),
       events = [...d.events].sort((a, b) => a.y - b.y);
     assert.ok(events[0].lines.length > 1);
-    assert.ok(events[1].y - 14 > events[0].y - 14 + events[0].height);
+    assert.ok(
+      events[1].y + LABEL_TOP > events[0].y + LABEL_TOP + events[0].height,
+    );
     assert.ok(
       d.lanes[0].start > d.headingY + (d.lanes[0].headingLines.length - 1) * 18,
     );
@@ -180,7 +182,7 @@ test("labels borrow past ended lanes, stop before active lanes and leave fork co
   assert.ok(newer.x + 14 + newer.width <= d.lanes[1].x - 24);
   assert.ok(fork.x + 14 + fork.width <= d.lanes[1].x - 24);
   assert.equal(child.x + 14 + child.width, d.width - 24);
-  assert.ok(older.y - 14 > d.lanes[1].end);
+  assert.ok(older.y + LABEL_TOP > d.lanes[1].end);
   const narrow = layout(history, view, measure, 300);
   assert.ok(narrow.width >= 2 * view.layout.laneWidth + 70);
   assertNoCollisions(d);
@@ -194,7 +196,8 @@ function assertNoCollisions(diagram) {
     for (const b of events.slice(i + 1)) {
       const horizontal =
         a.x - 8 < b.x + 14 + b.width && b.x - 8 < a.x + 14 + a.width;
-      if (horizontal) assert.ok(a.y - 14 + a.height + 8 <= b.y - 14);
+      if (horizontal)
+        assert.ok(a.y + LABEL_TOP + a.height + 8 <= b.y + LABEL_TOP);
     }
     for (const link of diagram.links) {
       if (link.base === a.commit.sha) continue;
@@ -205,7 +208,8 @@ function assertNoCollisions(diagram) {
         );
       if (a.x - 8 < right && left < a.x + 14 + a.width)
         assert.ok(
-          a.y - 14 >= link.y1 + 16 || a.y - 14 + a.height + 8 <= link.y1 - 40,
+          a.y + LABEL_TOP >= link.y1 + 16 ||
+            a.y + LABEL_TOP + a.height + 8 <= link.y1 - 40,
         );
     }
   }
@@ -218,7 +222,7 @@ test("interleaved lane labels share vertical space while circles keep strict new
   const a = d.events.find((e) => e.commit.sha === newer.sha),
     b = d.events.find((e) => e.commit.sha === next.sha);
   assert.equal(b.y - a.y, 18);
-  assert.ok(a.y - 14 + a.height > b.y - 14);
+  assert.ok(a.y + LABEL_TOP + a.height > b.y + LABEL_TOP);
   assertNoCollisions(d);
   const expected = history.order.slice().reverse();
   assert.deepEqual(
@@ -381,7 +385,10 @@ test("stacked left-side version badges reserve space against neighbouring label 
     bottom = top + 48;
   for (const event of diagram.events.filter((e) => e !== tagged)) {
     if (left < event.x + 14 + event.width && event.x + 14 < right)
-      assert.ok(bottom <= event.y - 14 || event.y - 14 + event.height <= top);
+      assert.ok(
+        bottom <= event.y + LABEL_TOP ||
+          event.y + LABEL_TOP + event.height <= top,
+      );
   }
   const doc = new JSDOM(renderSvg(history, view, measure, 900), {
     contentType: "image/svg+xml",
@@ -475,4 +482,29 @@ test("ghost option shows filtered, excluded and mode-hidden nodes at group opaci
     [hashes[3]],
   );
   assert.equal(view.visibility.overrides[hashes[0]], false);
+});
+
+test("minimum spacing leaves only a few pixels between actual text instead of padding label boxes", () => {
+  const { view, history } = widthFixture();
+  history.lanes = history.lanes.slice(0, 1);
+  history.links = [];
+  view.branches = [view.root];
+  history.lanes[0].commits.forEach((c) => (c.subject = "Short message"));
+  view.layout.padding = 0;
+  for (const compact of [false, true]) {
+    view.layout.compact = compact;
+    const events = layout(history, view, measure, 900).events.sort(
+      (a, b) => a.y - b.y,
+    );
+    for (let i = 1; i < events.length; i++) {
+      const previous = events[i - 1];
+      const previousBaseline = compact ? previous.y + 4 : previous.y + 24;
+      const nextTextTop = events[i].y + 4 - 10;
+      const gap = nextTextTop - (previousBaseline + 3);
+      assert.ok(
+        gap >= 1 && gap <= 6,
+        `Expected nearly touching text, got ${gap}px`,
+      );
+    }
+  }
 });
