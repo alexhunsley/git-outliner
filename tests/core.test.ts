@@ -459,15 +459,10 @@ test("segment graph is independent of selection order, overrides and post-fork b
     assert.equal(after.unresolved.length, 0);
     const diagram = layout(after, f.view);
     assert.ok(diagram.paths.some((path) => path.refs.length > 1));
-    assert.ok(
-      diagram.captions.some((caption) =>
-        caption.lines.join(" ").includes("Shared:"),
-      ),
-    );
-    assert.match(renderSvg(after, f.view), /Shared segment/);
+    assert.doesNotMatch(renderSvg(after, f.view), /Shared:/);
     const unchanged = JSON.stringify(after.graph);
     f.view.visibility.overrides[f.commits.staging] = false;
-    assert.ok(layout(after, f.view).captions.length);
+    assert.ok(layout(after, f.view).paths.length);
     assert.equal(JSON.stringify(after.graph), unchanged);
     delete f.view.visibility.overrides[f.commits.staging];
 

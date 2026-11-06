@@ -36,7 +36,6 @@ export interface Diagram {
     width: number;
   }[];
   paths: { ref: string; x: number; y1: number; y2: number; refs: string[] }[];
-  captions: { x: number; y: number; lines: string[] }[];
   links: {
     tip?: boolean;
     x1: number;
@@ -98,7 +97,7 @@ export function layout(
   };
   const titleLines = wrapText(view.name, width - 48, measure, 16, 700);
   const legendLines = wrapText(
-    `Git Outliner · newest → oldest ↓ · ○ commit · Ⓜ merge · ${history.graph ? "grey: shared history · links: commit forks" : "dashed links: inferred ancestry"}` +
+    `Git Outliner · newest → oldest ↓ · ○ commit · Ⓜ merge · ${history.graph ? "links: commit forks" : "dashed links: inferred ancestry"}` +
       (history.unresolved.length
         ? " · unresolved selections (see warnings)"
         : ""),
@@ -143,30 +142,6 @@ export function layout(
   );
   const segmentOwner = (refs: string[]) =>
     refs.includes(view.root) ? view.root : refs[0];
-  const sharedCaptions = new Map(
-    (history.graph?.segments || [])
-      .filter((s) => s.refs.length > 1)
-      .map((s) => {
-        const i = history.lanes.findIndex(
-          (l) => l.ref === segmentOwner(s.refs),
-        );
-        const sha = s.commits[0].sha;
-        return [
-          sha,
-          {
-            x: laneX(i) + 14,
-            lines: wrapText(
-              "Shared: " +
-                s.refs.map((ref) => ref.replace("refs/heads/", "")).join(" / "),
-              labelRight(i, sha) - laneX(i) - 22,
-              measure,
-              10,
-              400,
-            ),
-          },
-        ] as const;
-      }),
-  );
   // Sweep newest first. Only horizontally overlapping geometry consumes label height.
   type Box = {
     lane?: number;
@@ -218,16 +193,6 @@ export function layout(
         bottom: 8,
       });
     }
-    const caption = sharedCaptions.get(sha);
-    if (caption)
-      boxes.push({
-        left: caption.x,
-        right:
-          caption.x +
-          Math.max(...caption.lines.map((line) => measure(line, 10, 400))),
-        top: -(caption.lines.length * 14 + 56),
-        bottom: -48,
-      });
     let nextY = Math.max(
       previousY + 18,
       start + 8 - Math.min(0, ...boxes.map((box) => box.top)),
@@ -287,10 +252,6 @@ export function layout(
     headingY,
     height,
     lanes,
-    captions: [...sharedCaptions].map(([sha, caption]) => ({
-      ...caption,
-      y: y.get(sha)! - (caption.lines.length * 14 + 42),
-    })),
     paths: [
       ...(history.graph?.segments || []).map((segment) => {
         const ref = segmentOwner(segment.refs),
@@ -386,27 +347,21 @@ export function renderSvg(
     e = escapeXml;
   const color = (x: number) =>
     colors[d.lanes.findIndex((l) => l.x === x) % colors.length];
-  const memberships = new Map(
-    history.graph?.segments.flatMap((segment) =>
-      segment.commits.map((commit) => [commit.sha, segment.refs] as const),
-    ) || [],
-  );
   const textLines = (lines: string[], x: number, y: number, step: number) =>
     lines
       .map(
         (line, i) => `<tspan x="${x}" y="${y + i * step}">${e(line)}</tspan>`,
       )
       .join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${d.width}" height="${d.height}" viewBox="0 0 ${d.width} ${d.height}" role="img" aria-label="${e(view.name)}"><title>${e(view.name)}</title><desc>Newest to oldest, top to bottom. Plain circles represent commits; same-size circles with M represent merges. ${history.graph ? "Connections identify verified shared commits or ref tips." : "Dashed branch connections indicate inferred common first-parent ancestors."} Grey segments and Shared labels identify history belonging to multiple selected refs; lane columns do not claim historical named-branch ownership. ${e(history.warnings.map((w) => w.message).join(" "))}</desc><rect width="100%" height="100%" fill="#fcfbf7"/><g font-family="${SVG_FONT}" font-size="12" fill="#253c3c"><text x="24" y="24" font-size="16" font-weight="700">${textLines(d.titleLines, 24, 24, 22)}</text><text x="24" y="43" font-size="10" fill="#637979">${textLines(d.legendLines, 24, 24 + d.titleLines.length * 22, 15)}</text>
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${d.width}" height="${d.height}" viewBox="0 0 ${d.width} ${d.height}" role="img" aria-label="${e(view.name)}"><title>${e(view.name)}</title><desc>Newest to oldest, top to bottom. Plain circles represent commits; same-size circles with M represent merges. ${history.graph ? "Connections identify verified shared commits or ref tips." : "Dashed branch connections indicate inferred common first-parent ancestors."} Shared history is derived from commits; lane columns do not claim historical named-branch ownership. ${e(history.warnings.map((w) => w.message).join(" "))}</desc><rect width="100%" height="100%" fill="#fcfbf7"/><g font-family="${SVG_FONT}" font-size="12" fill="#253c3c"><text x="24" y="24" font-size="16" font-weight="700">${textLines(d.titleLines, 24, 24, 22)}</text><text x="24" y="43" font-size="10" fill="#637979">${textLines(d.legendLines, 24, 24 + d.titleLines.length * 22, 15)}</text>
   ${d.lanes.map((l) => `<g><text x="${l.x - 12}" y="${d.headingY}" font-size="13" font-weight="700" fill="${color(l.x)}"><title>${e(l.ref)}</title>${textLines(l.headingLines, l.x - 12, d.headingY, 18)}</text>${history.graph ? "" : `<path d="M${l.x},${l.start} V${l.end}" stroke="${color(l.x)}" stroke-width="${l.root ? 3 : 2}" fill="none"/>`}</g>`).join("")}
-  ${d.paths.map((path) => `<path d="M${path.x},${path.y1} V${path.y2}" stroke="${path.refs.length > 1 ? "#87938f" : color(path.x)}" stroke-width="${path.ref === view.root ? 3 : 2}" fill="none"><title>${e(path.refs.length > 1 ? "Shared segment: " + path.refs.join(", ") : "Segment ending at " + path.ref)}</title></path>`).join("")}
-  ${d.captions.map((caption) => `<text x="${caption.x}" y="${caption.y}" font-size="10" fill="#536a66">${textLines(caption.lines, caption.x, caption.y, 14)}</text>`).join("")}
+  ${d.paths.map((path) => `<path d="M${path.x},${path.y1} V${path.y2}" stroke="${path.refs.length > 1 ? "#87938f" : color(path.x)}" stroke-width="${path.ref === view.root ? 3 : 2}" fill="none"><title>${e(path.refs.length > 1 ? "History segment: " + path.refs.join(", ") : "Segment ending at " + path.ref)}</title></path>`).join("")}
+
   ${d.links.map((l) => `<g><title>${history.graph ? (l.tip ? "Ref tip at shared commit" : "Verified shared commit fork") : "Inferred common ancestor"} ${l.base}; no historical named-branch ownership is claimed</title><path d="M${l.x1},${l.y1} V${l.y1 - 24} C${l.x1},${l.y2} ${l.x2},${l.y1 - 24} ${l.x2},${l.y2}" fill="none" stroke="#9caeaa" stroke-dasharray="5 5"/><circle cx="${l.x1}" cy="${l.y1}" r="3" fill="#9caeaa"/><text x="${l.x2 + 10}" y="${l.y2 + 18}" fill="#6c7e7a" font-size="10">${history.graph ? (l.tip ? "tip" : "fork") : "inferred"} · ${l.base.slice(0, 7)}</text></g>`).join("")}
   ${d.events
     .map(({ commit: c, x, y, lines, height, width }) => {
-      const refs = memberships.get(c.sha) || [];
-      const eventColor = refs.length > 1 ? "#87938f" : color(x);
-      return `<g data-event="${c.sha}" data-kind="${c.parents.length > 1 ? "merge" : "commit"}"><title>${e((c.parents.length > 1 ? "Merge" : "Commit") + "\n" + c.sha + "\n" + c.body + (refs.length > 1 ? "\nShared: " + refs.join(", ") : ""))}</title><circle cx="${x}" cy="${y}" r="6" fill="#fcfbf7" stroke="${eventColor}" stroke-width="3"/>${c.parents.length > 1 ? `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central" font-size="7" font-weight="800" fill="${eventColor}" aria-label="Merge">M</text>` : ""}<rect x="${x + 14}" y="${y - 14}" width="${width}" height="${height}" rx="6" fill="#fcfbf7"/><text x="${x + 22}" y="${y - 1}" font-size="13" font-weight="650">${textLines(lines, x + 22, y + 4, 18)}</text>${view.layout.compact ? "" : `<text x="${x + 22}" y="${y + lines.length * 18 + 6}" font-size="10" fill="#748780">${new Date(c.timestamp * 1000).toISOString().slice(0, 10)} · ${c.sha.slice(0, 8)}</text>`}</g>`;
+      const eventColor = color(x);
+      return `<g data-event="${c.sha}" data-kind="${c.parents.length > 1 ? "merge" : "commit"}"><title>${e((c.parents.length > 1 ? "Merge" : "Commit") + "\n" + c.sha + "\n" + c.body)}</title><circle cx="${x}" cy="${y}" r="6" fill="#fcfbf7" stroke="${eventColor}" stroke-width="3"/>${c.parents.length > 1 ? `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central" font-size="7" font-weight="800" fill="${eventColor}" aria-label="Merge">M</text>` : ""}<rect x="${x + 14}" y="${y - 14}" width="${width}" height="${height}" rx="6" fill="#fcfbf7"/><text x="${x + 22}" y="${y - 1}" font-size="13" font-weight="650">${textLines(lines, x + 22, y + 4, 18)}</text>${view.layout.compact ? "" : `<text x="${x + 22}" y="${y + lines.length * 18 + 6}" font-size="10" fill="#748780">${new Date(c.timestamp * 1000).toISOString().slice(0, 10)} · ${c.sha.slice(0, 8)}</text>`}</g>`;
     })
     .join("")}
   </g></svg>`;

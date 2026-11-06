@@ -261,7 +261,7 @@ function draw() {
   ${view ? `<label for="name">View name ${dirty ? '<span class="muted">· unsaved</span>' : ""}</label><input id="name" maxlength="120" value="${esc(view.name)}"><div class="row"><button class="primary" data-action="save">Save</button><button data-action="duplicate">Duplicate</button><button data-action="delete">Delete</button></div><button class="text-button" data-action="json">Export view JSON ↗</button>` : ""}</section>
   ${
     view && repo
-      ? `<section><div class="eyebrow">02 / BRANCHES</div><label for="root">Diagram root</label><select id="root">${!repo.branches.some((b) => b.ref === view!.root) ? `<option value="${esc(view.root)}">Missing: ${esc(label(view.root))}</option>` : ""}${options(view.root)}</select><p class="hint">Only local branches. Forks and shared segments are derived from commits; grey segments belong to multiple selected refs.</p><div class="branch-list">${repo.branches
+      ? `<section><div class="eyebrow">02 / BRANCHES</div><label for="root">Diagram root</label><select id="root">${!repo.branches.some((b) => b.ref === view!.root) ? `<option value="${esc(view.root)}">Missing: ${esc(label(view.root))}</option>` : ""}${options(view.root)}</select><p class="hint">Only local branches. Forks are derived from commit ancestry.</p><div class="branch-list">${repo.branches
           .filter((b) => b.ref !== view!.root)
           .map(
             (b) =>
@@ -339,11 +339,6 @@ function getSvgSize(svg: string, attr: string) {
 function eventList() {
   if (!history || !view)
     return '<p class="hint">Select branches to discover commits and merges.</p>';
-  const memberships = new Map(
-    history.graph?.segments.flatMap((segment) =>
-      segment.commits.map((commit) => [commit.sha, segment.refs] as const),
-    ) || [],
-  );
   return history.lanes
     .map((l) => {
       const events = candidates(history!, l, view!).filter((c) =>
@@ -351,7 +346,7 @@ function eventList() {
           .toLowerCase()
           .includes(query.toLowerCase()),
       );
-      return `<details open class="event-group" data-panel="${esc(l.ref)}"><summary>${esc(label(l.ref))} <span class="muted">${events.length}</span></summary><div class="row"><button data-group="${esc(l.ref)}" data-set="true">All</button><button data-group="${esc(l.ref)}" data-set="false">None</button></div>${events.length ? events.map((c) => `<div class="event"><label class="check"><input type="checkbox" data-event="${c.sha}" ${visible(view!, c.sha) ? "checked" : ""}><span><strong title="${esc(c.body)}">${esc(commitLabel(c, view!))}</strong>${(memberships.get(c.sha)?.length || 0) > 1 ? `<small>Shared: ${esc(memberships.get(c.sha)!.map(label).join(" / "))}</small><br/>` : ""}<small>${new Date(c.timestamp * 1000).toISOString().slice(0, 10)} · ${c.sha.slice(0, 8)}</small></span></label>${c.sha in view!.visibility.overrides ? `<button class="reset" data-reset="${c.sha}" title="Use default visibility">Reset to default</button>` : ""}</div>`).join("") : '<p class="hint">No matching events in this branch segment.</p>'}</details>`;
+      return `<details open class="event-group" data-panel="${esc(l.ref)}"><summary>${esc(label(l.ref))} <span class="muted">${events.length}</span></summary><div class="row"><button data-group="${esc(l.ref)}" data-set="true">All</button><button data-group="${esc(l.ref)}" data-set="false">None</button></div>${events.length ? events.map((c) => `<div class="event"><label class="check"><input type="checkbox" data-event="${c.sha}" ${visible(view!, c.sha) ? "checked" : ""}><span><strong title="${esc(c.body)}">${esc(commitLabel(c, view!))}</strong><small>${new Date(c.timestamp * 1000).toISOString().slice(0, 10)} · ${c.sha.slice(0, 8)}</small></span></label>${c.sha in view!.visibility.overrides ? `<button class="reset" data-reset="${c.sha}" title="Use default visibility">Reset to default</button>` : ""}</div>`).join("") : '<p class="hint">No matching events in this branch segment.</p>'}</details>`;
     })
     .join("");
 }

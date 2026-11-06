@@ -126,7 +126,8 @@ test("DOM workflow: select lanes, toggle, save, reload, reconcile, import/export
     assert.match(b.find(".toolbar").textContent, /3 lanes · 5 visible merges/);
     await b.change(`[data-event="${commits.staging}"]`, false);
     assert.match(b.find(".toolbar").textContent, /4 visible merges/);
-    assert.match(b.find("#diagram").innerHTML, /Shared/);
+    assert.doesNotMatch(b.find("#diagram").textContent, /Shared:/);
+    assert.doesNotMatch(b.find("#events").textContent, /Shared:/);
     b.input("#name", "Release review");
     await b.click('[data-action="save"]');
     assert.equal((await store.list())[0].name, "Release review");
